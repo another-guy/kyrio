@@ -103,7 +103,7 @@ class TestSkills(unittest.TestCase):
                     len(description), 1536,
                     "the description budget is 1,536 characters")
                 self.assertRegex(
-                    description, r"\bnot\b",
+                    description, r"(?i)\bnot\b",
                     "say what this skill is not for, not only what it does")
 
     def test_broker_calls_are_permitted_by_the_frontmatter(self):

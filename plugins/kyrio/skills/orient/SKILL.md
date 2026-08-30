@@ -6,8 +6,8 @@ description: >
   the shape of the whole with named paths, before any detail. Use it on a
   codebase you have not worked in, on returning to one after months, or before
   estimating work in one. It reads only and changes nothing. Not for following
-  one behaviour down through the layers, and not for reviewing a change, a
-  diff, or uncommitted work.
+  one behaviour down through the layers — that is depth-first work, and
+  `/kyrio:trace` — and not for reviewing a change, a diff, or uncommitted work.
 allowed-tools: Bash(kyrio:*), Read, Grep
 ---
 
