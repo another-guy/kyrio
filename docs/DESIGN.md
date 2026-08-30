@@ -95,7 +95,13 @@ reversal stays cheap (see D1):
 
 - **S1 — single emit chokepoint.** Every response leaves `kyrio` through one
   `emit()` function. No adapter writes to stdout directly. This is also where
-  output-shape versioning and tracing would attach.
+  output-shape versioning and tracing would attach. A unit test parses every
+  module under `scripts/` and fails on a direct `print` or stream write.
+
+  **The launcher shims are the one carve-out, and they have to be.** If no
+  interpreter is found, Python never runs, so `emit()` cannot report it. Each
+  shim therefore writes that single failure in the wire format by hand. The
+  exception is bounded to one message per shim and is noted in both files.
 - **S2 — declarative merge strategies.** The cascade resolver reads a per-key
   strategy schema rather than hardcoding one rule. A `monotonic-tighten`
   strategy is defined and left unused.
@@ -229,8 +235,17 @@ product, and repo layers are hand-authored, and are derived first from whatever
 the repository already states — ownership files, package manifests, project
 files, CI definitions, an existing `CLAUDE.md` — before a new file is proposed.
 
+Two consequences of these rules are worth knowing before hand-authoring a
+layer. A layer declaring `"root": true` **contributes and then stops the walk**;
+it is a boundary, not an exclusion, and the machine layer remains the base
+regardless. And `deep-merge` gives a nearer layer no way to *delete* a key an
+outer layer set: turning something off is an explicit value, such as
+`{"transport": "unavailable"}`, never an absence. Silent removal is how a
+cascade stops being predictable.
+
 `kyrio config explain` prints every effective value alongside the layer that
-supplied it. This replaces the comments JSON cannot carry.
+supplied it, with each layer numbered so the number can stand in for a long
+path on every row. This replaces the comments JSON cannot carry.
 
 ---
 
@@ -296,6 +311,13 @@ what the broker returns is multi-line text — diffs, log lines, commit bodies,
 ticket descriptions — and embedding those in JSON makes them both more expensive
 and harder to read, for no gain: the header alone carries everything a program
 needs to parse, and one `readline` plus `json.loads` recovers it.
+
+**A response with no payload is a header line and nothing else — no delimiter.**
+So a reader's rule is: take line one as the header; if line two is `---`,
+everything after it is the payload. `call` and `unavailable` are complete in
+the header and carry no payload; passing one raises rather than emitting, since
+it can only mean a programming error. `manual` carries its instructions as the
+payload, and `error` may carry detail.
 
 ### Statuses
 
@@ -501,10 +523,22 @@ CAPABILITY    TRANSPORT       STATUS
 
 WRITES
   ~/.claude/kyrio/config.json                      automatic
+  ~/.claude/kyrio/state/interpreter                automatic
   ~/.claude/settings.json  permission rule         on confirmation
 
 INSTALLS      nothing, ever.
 ```
+
+The interpreter is recorded twice on purpose. `config.json` holds it as a
+normal key; `state/interpreter` holds the same absolute path as one line of
+plain text, because the launcher shims are `sh` and batch and cannot parse JSON
+without an external tool — and requiring one to start the broker would defeat
+the point. Setup writes both or neither.
+
+The shims resolve an interpreter by execution in this order: `KYRIO_PYTHON`,
+the recorded path, then the names on `PATH`. That order exists because the
+bootstrap case is a machine with no configuration at all: the shim has to work
+before setup has ever run, and prefer setup's answer once it has.
 
 Setup **never installs software and never runs an authentication flow.** It
 prints the exact command and stops. Installing software on a managed machine is
