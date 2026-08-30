@@ -24,9 +24,14 @@ _SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-from kyrio import cli, config, emit  # noqa: E402 -- must follow the bootstrap
+from kyrio import cli, config, emit, repo  # noqa: E402 -- follows the bootstrap
 
 USAGE = """\
+kyrio repo map             entry points, module boundaries, build and test commands
+kyrio repo churn           what changed most, and how often
+     [--since 90d] [--top 25] [--path <p>]
+kyrio repo owners [<path>] ownership, from an ownership file or from history
+kyrio repo blame <path>:<line>[-<line>]
 kyrio caps                 what this machine can reach, and what is missing
 kyrio config explain       effective configuration, and the layer behind each value
 kyrio help                 this text
@@ -102,7 +107,7 @@ def caps(args):
         counts[status] += 1
         rows.append((name, transport or "--", status))
 
-    payload = _table(("CAPABILITY", "TRANSPORT", "STATUS"), rows)
+    payload = cli.table(("CAPABILITY", "TRANSPORT", "STATUS"), rows)
     if counts["unconfigured"] or counts["unavailable"]:
         payload += (
             "\nStatus is what configuration says, not what was last probed.\n"
@@ -148,7 +153,7 @@ def _config_explain(args):
         contributors = resolved.provenance[path]
         origin = "[%s]" % ",".join(index[c] for c in contributors)
         rows.append((path, _render(resolved.get(path)), origin))
-    lines.append(_table(("KEY", "VALUE", "FROM"), rows).rstrip("\n"))
+    lines.append(cli.table(("KEY", "VALUE", "FROM"), rows).rstrip("\n"))
 
     return emit.ok("config", "\n".join(lines) + "\n",
                    layers=len(resolved.layers), keys=len(rows))
@@ -161,25 +166,71 @@ def _render(value):
     return json.dumps(value, separators=(", ", ": "), ensure_ascii=False)
 
 
-def _table(headers, rows, indent="  "):
-    """Fixed-width columns; the last column is never padded."""
-    columns = len(headers)
-    widths = [len(h) for h in headers]
-    for row in rows:
-        for i, cell in enumerate(row):
-            widths[i] = max(widths[i], len(str(cell)))
+# ---------------------------------------------------------------- repo
 
-    def line(cells):
-        parts = [str(c).ljust(widths[i]) if i < columns - 1 else str(c)
-                 for i, c in enumerate(cells)]
-        return (indent + "  ".join(parts)).rstrip()
 
-    return "\n".join([line(headers)] + [line(r) for r in rows]) + "\n"
+def repo_command(args):
+    rest = list(args.rest)
+    verb = rest[0] if rest else None
+    handler = REPO_VERBS.get(verb)
+    if handler is None:
+        return emit.error("usage: kyrio repo <map|churn|owners|blame>",
+                          known=sorted(REPO_VERBS))
+    try:
+        result = handler(args, rest[1:])
+    except repo.RepoError as exc:
+        return emit.error(str(exc), kind="repo")
+    return emit.ok(result.kind, result.payload, transport="local",
+                   **result.meta)
+
+
+def _cwd(args):
+    return pathlib.Path(args.cwd).resolve() if args.cwd else pathlib.Path.cwd()
+
+
+def _repo_map(args, rest):
+    # Configuration beats detection, so a repository with an unusual build
+    # answers correctly without the detector learning about it.
+    conventions = _resolve(args).get("conventions") or {}
+    return repo.repo_map(_cwd(args), conventions=conventions)
+
+
+def _repo_churn(args, rest):
+    parser = cli.Parser(prog="kyrio repo churn")
+    parser.add_argument("--since", default=repo.DEFAULT_WINDOW)
+    parser.add_argument("--top", type=int, default=25)
+    parser.add_argument("--path")
+    flags = parser.parse_args(rest)
+    return repo.churn(_cwd(args), window=flags.since, top_n=flags.top,
+                      path=flags.path)
+
+
+def _repo_owners(args, rest):
+    parser = cli.Parser(prog="kyrio repo owners")
+    parser.add_argument("path", nargs="?")
+    flags = parser.parse_args(rest)
+    return repo.owners(_cwd(args), path=flags.path)
+
+
+def _repo_blame(args, rest):
+    parser = cli.Parser(prog="kyrio repo blame")
+    parser.add_argument("location", nargs="?")
+    flags = parser.parse_args(rest)
+    return repo.blame(_cwd(args), flags.location)
+
+
+REPO_VERBS = {
+    "map": _repo_map,
+    "churn": _repo_churn,
+    "owners": _repo_owners,
+    "blame": _repo_blame,
+}
 
 
 COMMANDS = {
     "caps": caps,
     "config": config_command,
+    "repo": repo_command,
 }
 
 

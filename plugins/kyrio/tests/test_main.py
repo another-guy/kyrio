@@ -223,12 +223,14 @@ class TestConfigExplain(Run):
 
 
 class TestTable(unittest.TestCase):
+    """One table helper, so two reports cannot drift into two shapes."""
+
     def test_columns_align_and_the_last_is_not_padded(self):
-        text = main_module._table(("A", "BBBB"), [("xx", "y")])
+        text = cli.table(("A", "BBBB"), [("xx", "y")])
         self.assertEqual(text, "  A   BBBB\n  xx  y\n")
 
     def test_headers_alone_still_produce_a_table(self):
-        self.assertEqual(main_module._table(("A", "B"), []), "  A  B\n")
+        self.assertEqual(cli.table(("A", "B"), []), "  A  B\n")
 
 
 if __name__ == "__main__":

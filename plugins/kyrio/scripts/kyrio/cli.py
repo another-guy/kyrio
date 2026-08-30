@@ -43,3 +43,30 @@ class Parser(argparse.ArgumentParser):
     # stream except through emit.
     def _print_message(self, message, file=None):
         return None
+
+
+def table(headers, rows, indent="  ", right=()):
+    """Fixed-width columns. The last column is never padded.
+
+    Shared by every command that reports rows, so that two reports never drift
+    into two different shapes. ``right`` names column indexes to right-align,
+    which is what makes a ranked count scannable down the column.
+    """
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(str(cell)))
+
+    def line(cells):
+        parts = []
+        for i, cell in enumerate(cells):
+            text = str(cell)
+            if i in right:
+                parts.append(text.rjust(widths[i]))
+            elif i < len(headers) - 1:
+                parts.append(text.ljust(widths[i]))
+            else:
+                parts.append(text)
+        return (indent + "  ".join(parts)).rstrip()
+
+    return "\n".join([line(headers)] + [line(r) for r in rows]) + "\n"
