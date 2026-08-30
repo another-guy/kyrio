@@ -11,6 +11,9 @@ import unittest
 
 import _path  # noqa: F401  -- import side effect: puts scripts/ on sys.path
 
+from kyrio import __main__ as main_module
+from kyrio import ingest
+
 PLUGIN = pathlib.Path(__file__).resolve().parent.parent
 SKILLS = PLUGIN / "skills"
 
@@ -21,6 +24,21 @@ SKILLS = PLUGIN / "skills"
 CHARACTER_BUDGET = 5000 * 4
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
+
+#: A line that starts with the broker is a command being given to the reader,
+#: whether or not it sits in a fence. Prose mentioning the broker mid-sentence
+#: does not match, and prose that opens a line with a command ought to be one.
+BROKER_CALL_RE = re.compile(r"^\s*kyrio\s+(.+)$", re.M)
+
+#: Read from the dispatch tables rather than restated, so the broker and the
+#: skills cannot drift apart quietly.
+KNOWN_NOUNS = set(main_module.COMMANDS) | {"help"}
+KNOWN_VERBS = {
+    "repo": set(main_module.REPO_VERBS),
+    "probe": set(main_module.PROBE_VERBS),
+    "config": {"explain"},
+    "ingest": set(ingest.KINDS),
+}
 
 
 def skill_files():
@@ -106,6 +124,23 @@ class TestSkills(unittest.TestCase):
                     size, CHARACTER_BUDGET,
                     "only the first ~5,000 tokens survive compaction; move "
                     "the rest into references/")
+
+    def test_every_broker_call_names_a_command_that_exists(self):
+        """A typo here surfaces as a runtime error mid-workflow, which is a bad
+        place to discover it. The dispatch tables are the source of truth, so a
+        verb renamed in the broker fails here rather than in a session."""
+        for path in self.skills:
+            text = path.read_text(encoding="utf-8")
+            for call in BROKER_CALL_RE.findall(text):
+                words = [w for w in call.split()
+                         if not w.startswith(("-", "<", "$"))]
+                if not words:
+                    continue
+                noun, rest = words[0], words[1:]
+                with self.subTest(skill=path.parent.name, call=call.strip()):
+                    self.assertIn(noun, KNOWN_NOUNS)
+                    if noun in KNOWN_VERBS and rest:
+                        self.assertIn(rest[0], KNOWN_VERBS[noun])
 
     def test_no_skill_writes_settings_by_hand(self):
         """Every write belongs to a command, so re-running is reproducible."""
