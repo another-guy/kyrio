@@ -50,6 +50,14 @@ STRATEGIES = {
 
 DEFAULT_STRATEGY = NEAREST_WINS
 
+#: Every capability the broker knows about, in report order. One local noun and
+#: five transport-backed ones; see ``docs/DESIGN.md`` section 5.
+CAPABILITIES = ("repo", "scm", "issue", "ci", "kb", "obs")
+
+#: Capabilities that need no configuration and work on any machine. ``repo``
+#: reads the working tree and its history and has no transport to resolve.
+INTRINSIC = {"repo": {"transport": "local"}}
+
 
 class ConfigError(Exception):
     """A layer is unreadable, malformed, or violates its strategy.
