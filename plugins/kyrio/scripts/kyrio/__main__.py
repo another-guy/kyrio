@@ -24,7 +24,7 @@ _SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-from kyrio import cli, config, emit, repo  # noqa: E402 -- follows the bootstrap
+from kyrio import cli, config, emit, probe, repo  # noqa: E402 -- follows bootstrap
 
 USAGE = """\
 kyrio repo map             entry points, module boundaries, build and test commands
@@ -32,6 +32,10 @@ kyrio repo churn           what changed most, and how often
      [--since 90d] [--top 25] [--path <p>]
 kyrio repo owners [<path>] ownership, from an ownership file or from history
 kyrio repo blame <path>:<line>[-<line>]
+kyrio probe                what this machine has; writes nothing
+kyrio probe record         record the interpreter for the launcher to reuse
+kyrio probe permission [--apply]
+                           the one permission rule the broker needs
 kyrio caps                 what this machine can reach, and what is missing
 kyrio config explain       effective configuration, and the layer behind each value
 kyrio help                 this text
@@ -219,6 +223,48 @@ def _repo_blame(args, rest):
     return repo.blame(_cwd(args), flags.location)
 
 
+# --------------------------------------------------------------- probe
+
+
+def probe_command(args):
+    rest = list(args.rest)
+    verb = rest[0] if rest else "report"
+    if verb not in PROBE_VERBS:
+        return emit.error("usage: kyrio probe [record|permission]",
+                          known=sorted(PROBE_VERBS))
+    try:
+        result = PROBE_VERBS[verb](args, rest[1:])
+    except probe.ProbeError as exc:
+        return emit.error(str(exc), kind="probe")
+    except config.ConfigError as exc:
+        return emit.error(str(exc), kind="config")
+    return emit.ok(result.kind, result.payload, transport="local",
+                   **result.meta)
+
+
+def _probe_report(args, rest):
+    start = pathlib.Path(args.cwd).resolve() if args.cwd else None
+    return probe.report(start)
+
+
+def _probe_record(args, rest):
+    return probe.record()
+
+
+def _probe_permission(args, rest):
+    parser = cli.Parser(prog="kyrio probe permission")
+    parser.add_argument("--apply", action="store_true")
+    flags = parser.parse_args(rest)
+    return probe.permission(apply=flags.apply)
+
+
+PROBE_VERBS = {
+    "report": _probe_report,
+    "record": _probe_record,
+    "permission": _probe_permission,
+}
+
+
 REPO_VERBS = {
     "map": _repo_map,
     "churn": _repo_churn,
@@ -230,6 +276,7 @@ REPO_VERBS = {
 COMMANDS = {
     "caps": caps,
     "config": config_command,
+    "probe": probe_command,
     "repo": repo_command,
 }
 
