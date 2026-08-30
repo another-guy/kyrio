@@ -94,10 +94,18 @@ class TestDispatch(Run):
         self.assertEqual(header["status"], "error")
         self.assertIn("caps", header["known"])
 
-    def test_help_advertises_only_implemented_commands(self):
+    def test_help_advertises_every_implemented_command_and_no_other(self):
+        """A noun that is not built yet is an error naming what does exist,
+        never a line in the usage text that quietly does nothing. Reading the
+        list from the dispatch table means adding a command cannot leave the
+        usage text behind, and neither can removing one."""
         _, _, payload = self.run_kyrio("help")
-        for word in ("issue", "scm", "obs", "ingest"):
-            self.assertNotIn("kyrio %s" % word, payload)
+        for name in main_module.COMMANDS:
+            with self.subTest(command=name):
+                self.assertIn("kyrio %s" % name, payload)
+        for word in ("issue", "scm", "ci", "kb", "obs"):
+            with self.subTest(command=word):
+                self.assertNotIn("kyrio %s" % word, payload)
 
     def test_bad_global_flag_is_framed_not_raw(self):
         code, header, payload = self.run_kyrio("--nope", "caps")

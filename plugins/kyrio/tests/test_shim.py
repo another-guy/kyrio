@@ -37,6 +37,19 @@ class TestEntryPoint(unittest.TestCase):
         self.assertEqual(header["kind"], "caps")
         self.assertIn("repo", payload)
 
+    def test_the_wire_format_is_the_same_bytes_on_every_platform(self):
+        """Captured as bytes on purpose: text mode would hide the difference.
+
+        The platform's own line-ending translation would otherwise rewrite
+        every line on the way out, putting a payload the broker deliberately
+        normalized back into a second form (I9).
+        """
+        result = subprocess.run(
+            [sys.executable, str(ENTRY), "caps"],
+            capture_output=True, cwd=str(REPO))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(b"\r", result.stdout)
+
     def test_exit_code_reaches_the_caller(self):
         result = subprocess.run(
             [sys.executable, str(ENTRY), "nonsense"],

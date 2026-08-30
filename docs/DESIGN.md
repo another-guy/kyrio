@@ -319,6 +319,13 @@ the header and carry no payload; passing one raises rather than emitting, since
 it can only mean a programming error. `manual` carries its instructions as the
 payload, and `error` may carry detail.
 
+Lines are separated by `\n` and the stream is UTF-8, on every platform. The
+runtime's own line-ending translation is turned off at the emit chokepoint: a
+payload the broker deliberately normalized must not leave in a second form, and
+a reader splitting on `\n` would otherwise carry a stray `\r` at the end of
+every line. Characters the console cannot encode are replaced rather than
+raised, because a result is not worth losing to a codepage.
+
 ### Statuses
 
 | `status` | Exit | Meaning |
@@ -359,6 +366,29 @@ confident and subtly wrong result.
 
 The `next` field makes each response self-describing, so the protocol needs no
 standing instruction injected into every session and no skill has to restate it.
+
+### The inbound door (S3)
+
+`kyrio ingest <kind> --file <path>` is the only path by which data the broker
+did not produce becomes broker-shaped. It reads the file within a size bound,
+refuses anything that is not text, puts line endings in one form, and labels
+the result `"origin":"external"` so that no consumer can mistake it for
+something the broker produced itself.
+
+A `kind` is looked up in a registry, never guessed: an unregistered kind is an
+error naming the registered ones, because a door that accepts anything is not a
+door. The registry ships with one entry, `text` — bounded, decoded, asserting
+no structure — since a normalizer written before its consumer encodes a guess
+about a shape nobody has seen. Content arrives by path rather than on the
+command line: a payload in `argv` is bounded by the platform's limit, needs
+quoting the caller cannot reliably produce, and is visible in process listings.
+
+Oversize is refused with both numbers rather than truncated. Text that someone
+is about to draw a conclusion from is the worst possible thing to silently
+shorten.
+
+The door writes nothing. It is not a cache and not a store; a caller that wants
+the result kept writes it where section 8 says to (I7).
 
 ### Transport resolution
 
@@ -671,6 +701,25 @@ build an adapter fixture is to capture a real response and save it — and a rea
 response carries identifiers, usernames, hostnames, and internal URLs. Rule 1 of
 the lint scans the fixture directory precisely because this is the most likely
 place for the discipline to slip.
+
+### Continuous integration
+
+The same two commands a contributor runs by hand, on `ubuntu`, `windows`, and
+`macos`, at the minimum Python version — plus the newest release on one
+platform, to meet a deprecation before it becomes a break. The matrix is the
+point of the file. "Installs unchanged on any machine" (I2) is a claim about
+path separators, line endings, executable bits, and console encodings, every
+one of which is invisible on the machine the code was written on. A final step
+runs the launcher through its shim rather than as a module, because the shim is
+where the executable bit and the shebang matter.
+
+Nothing is installed. The pack depends on the standard library alone, so a
+workflow that quietly pulled in a runner or a linter would be testing something
+other than what ships.
+
+The floor version and the two commands appear in the hook, the workflow, and
+the README, and a test asserts the three agree. Drift between them is quiet and
+expensive: a check that stops running still reports green.
 
 ---
 

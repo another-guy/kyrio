@@ -1,0 +1,70 @@
+# Blocking checks. The same two commands a contributor runs by hand, on every
+# platform the pack claims to install on.
+#
+# The matrix is the point of this file. A pack that installs unchanged on any
+# machine (I2) is a claim about path separators, line endings, executable bits,
+# and console encodings -- every one of which is invisible on the machine it was
+# written on. Running the suite on one platform proves only that it works there.
+#
+# Nothing here installs a package. The pack depends on the standard library
+# alone, so a workflow that quietly pulled a runner or a linter in would be
+# testing something other than what ships.
+
+name: check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing must not hide another's result: which platforms
+      # pass is the whole signal here.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12"]
+        include:
+          # The floor is what every platform is held to; the newest release is
+          # checked once, to catch a deprecation before it becomes a break.
+          - os: ubuntu-latest
+            python: "3.13"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Portability lint
+        run: python scripts/check_portability.py
+        working-directory: plugins/kyrio
+
+      - name: Tests
+        run: python -m unittest discover -s tests -t tests
+        working-directory: plugins/kyrio
+
+      # Each platform exercises the shim its own users get, rather than the
+      # module directly: the shim is where the executable bit, the shebang, and
+      # the interpreter search actually live, and none of those are shared.
+      - name: The launcher runs
+        if: runner.os != 'Windows'
+        run: ./plugins/kyrio/bin/kyrio caps
+
+      - name: The launcher runs
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: plugins\kyrio\bin\kyrio.cmd caps

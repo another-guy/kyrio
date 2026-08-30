@@ -27,3 +27,26 @@ the reasoning behind them.
 ## Requirements
 
 Python 3.12 or newer on `PATH`. No third-party packages.
+
+## Development
+
+Install the blocking portability check once per clone:
+
+```
+git config core.hooksPath .githooks
+```
+
+It is deliberately not automatic. A repository that points git at its own hook
+directory on the strength of a clone has changed how the machine behaves before
+anyone read what it runs. CI runs the same check, so a missed hook is caught
+before a merge rather than after a push.
+
+The check and the suite, from `plugins/kyrio/`:
+
+```
+python scripts/check_portability.py
+python -m unittest discover -s tests -t tests
+```
+
+Both run on Linux, Windows, and macOS in CI. The pack depends on the standard
+library alone, so there is nothing to install first.

@@ -24,7 +24,7 @@ _SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-from kyrio import cli, config, emit, probe, repo  # noqa: E402 -- follows bootstrap
+from kyrio import cli, config, emit, ingest, probe, repo  # noqa: E402 -- follows bootstrap
 
 USAGE = """\
 kyrio repo map             entry points, module boundaries, build and test commands
@@ -38,6 +38,8 @@ kyrio probe permission [--apply]
                            the one permission rule the broker needs
 kyrio caps                 what this machine can reach, and what is missing
 kyrio config explain       effective configuration, and the layer behind each value
+kyrio ingest <kind> --file <path>
+                           read a file the broker did not produce (S3)
 kyrio help                 this text
 
 Global options
@@ -258,6 +260,30 @@ def _probe_permission(args, rest):
     return probe.permission(apply=flags.apply)
 
 
+# -------------------------------------------------------------- ingest
+
+
+def ingest_command(args):
+    """The single inbound door (S3).
+
+    ``--file`` rather than a positional argument holding the content: a payload
+    on the command line is bounded by the platform's argv limit, would need
+    quoting the caller cannot reliably produce, and would be visible in process
+    listings. A path is small, exact, and the same on every platform.
+    """
+    parser = cli.Parser(prog="kyrio ingest")
+    parser.add_argument("kind", nargs="?")
+    parser.add_argument("--file")
+    flags = parser.parse_args(args.rest)
+    try:
+        result = ingest.ingest(flags.kind, flags.file)
+    except ingest.IngestError as exc:
+        return emit.error(str(exc), kind="ingest",
+                          known=sorted(ingest.KINDS))
+    return emit.ok(result.kind, result.payload, transport="ingest",
+                   **result.meta)
+
+
 PROBE_VERBS = {
     "report": _probe_report,
     "record": _probe_record,
@@ -276,6 +302,7 @@ REPO_VERBS = {
 COMMANDS = {
     "caps": caps,
     "config": config_command,
+    "ingest": ingest_command,
     "probe": probe_command,
     "repo": repo_command,
 }

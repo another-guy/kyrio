@@ -117,9 +117,14 @@ def _write(header, payload, stream=None):
         stream = sys.stdout
         # A diff or a commit body will contain characters the console's legacy
         # codepage cannot encode. Never let that turn a result into a crash.
+        #
+        # newline="" turns off the platform's line-ending translation, so the
+        # response is the same bytes everywhere. Without it Windows rewrites
+        # every "\n" on the way out, and a payload the broker deliberately
+        # normalized leaves in a second form (I9).
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
-            reconfigure(encoding="utf-8", errors="replace")
+            reconfigure(encoding="utf-8", errors="replace", newline="")
 
     # separators= keeps the header on one line and free of padding; a reader
     # relies on exactly one line preceding the delimiter.
