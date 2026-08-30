@@ -1,0 +1,71 @@
+#!/bin/sh
+# The broker's entry point on POSIX shells.
+#
+# A plugin's bin/ directory is placed on the Bash tool's PATH, so this file is
+# what makes `kyrio` a bare command. That matters beyond convenience: the single
+# permission rule names the bare command, and so never goes stale when the
+# plugin updates into a new versioned directory.
+#
+# Interpreter resolution is by execution, never by presence: a name that
+# resolves on PATH proves nothing, and on Windows `python` is often a stub that
+# resolves and does nothing useful.
+#
+# This file and its .cmd sibling are the only places outside emit.py that write
+# a framed response. They have to be: if no interpreter is found, Python never
+# runs, and a caller must still receive a response it can read rather than a
+# bare shell error.
+
+set -u
+
+VERSION_CHECK='import sys; sys.exit(sys.version_info[:2] < (3, 12))'
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || here=""
+entry="$here/../scripts/kyrio/__main__.py"
+recorded="${HOME:-$USERPROFILE}/.claude/kyrio/state/interpreter"
+
+fail() {
+    printf '{"status":"error","message":%s}\n' "$1"
+    printf -- '---\n'
+    shift
+    for line in "$@"; do printf '%s\n' "$line"; done
+    exit 1
+}
+
+usable() {
+    [ -n "${1:-}" ] || return 1
+    "$1" -c "$VERSION_CHECK" >/dev/null 2>&1
+}
+
+python_bin=""
+for candidate in \
+    "${KYRIO_PYTHON:-}" \
+    "$(cat "$recorded" 2>/dev/null)" \
+    python3 \
+    python
+do
+    if usable "$candidate"; then
+        python_bin="$candidate"
+        break
+    fi
+done
+
+if [ -z "$python_bin" ]; then
+    fail '"no Python 3.12 or newer found"' \
+        'kyrio needs Python 3.12 or newer, and none was found.' \
+        '' \
+        'Tried, in order: KYRIO_PYTHON, the interpreter recorded by' \
+        '/kyrio:setup, python3, python.' \
+        '' \
+        'Install Python 3.12 or newer, then run /kyrio:setup. If it is already' \
+        'installed somewhere off PATH, set KYRIO_PYTHON to its absolute path.'
+fi
+
+if [ ! -f "$entry" ]; then
+    fail '"broker entry point is missing"' \
+        "Expected to find it at: $entry" \
+        '' \
+        'The plugin install looks incomplete. Reinstall it, then run' \
+        '/kyrio:setup.'
+fi
+
+exec "$python_bin" "$entry" "$@"

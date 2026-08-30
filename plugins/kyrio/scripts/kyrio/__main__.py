@@ -12,10 +12,19 @@ built is an error naming what does exist, never a silent no-op.
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 
-from kyrio import cli, config, emit
+# Run as a file (``kyrio/scripts/kyrio/__main__.py``) and only this directory is
+# importable; the package lives one level up. Bootstrapping here rather than
+# through PYTHONPATH keeps the shims free of environment variables and of the
+# separator difference between platforms.
+_SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+
+from kyrio import cli, config, emit  # noqa: E402 -- must follow the bootstrap
 
 USAGE = """\
 kyrio caps                 what this machine can reach, and what is missing

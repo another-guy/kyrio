@@ -1,0 +1,6 @@
+# The sh shim must keep LF endings on every platform: a CRLF shebang line makes
+# the shell look for an interpreter named "sh\r" and fail with a message that
+# points nowhere useful.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
