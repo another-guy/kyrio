@@ -1,0 +1,24 @@
+#!/bin/sh
+# Blocking portability check. Install once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# The check is blocking rather than advisory because the failure it prevents is
+# not recoverable by a later commit: a clone carries its whole history, so a
+# string removed in a follow-up commit is still there on every machine that
+# already pulled it. The fix for a slip is a rewrite before pushing.
+
+set -e
+
+lint="plugins/kyrio/scripts/check_portability.py"
+[ -f "$lint" ] || exit 0
+
+for candidate in "${KYRIO_PYTHON:-}" python3 python; do
+    if [ -n "$candidate" ] && "$candidate" -c "import sys; sys.exit(sys.version_info[:2] < (3, 12))" >/dev/null 2>&1; then
+        exec "$candidate" "$lint" --staged
+    fi
+done
+
+echo "pre-commit: no Python 3.12 or newer found; cannot run the portability check." >&2
+echo "Install it, or set KYRIO_PYTHON, or commit with --no-verify and run the check by hand." >&2
+exit 1

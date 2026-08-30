@@ -154,9 +154,15 @@ class TestConstructors(unittest.TestCase):
 
 
 class TestChokepoint(unittest.TestCase):
-    """S1: emit.py is the only module that writes to stdout."""
+    """S1: inside the broker package, emit.py alone writes to stdout.
 
-    SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
+    The scan stops at the package boundary. A sibling development tool such as
+    ``check_portability.py`` is never invoked by a skill, answers to no
+    protocol, and prints an ordinary report.
+    """
+
+    SCRIPTS = (pathlib.Path(__file__).resolve().parent.parent
+               / "scripts" / "kyrio")
 
     def offenders(self, tree):
         found = []
