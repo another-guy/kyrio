@@ -253,7 +253,8 @@ def probe_command(args):
 
 def _probe_report(args, rest):
     start = pathlib.Path(args.cwd).resolve() if args.cwd else None
-    return probe.report(start, discovery=probe.discover_servers())
+    return probe.report(start, discovery=probe.discover_servers(),
+                        tools=probe.probe_tools())
 
 
 def _probe_servers(args, rest):

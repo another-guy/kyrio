@@ -66,12 +66,26 @@ a person chose it here:
 
 Use `PREFIX` exactly as given; never construct one.
 
-Show one line per proposal: the capability, the server it came from, and how
-confident you are. Mark guesses as guesses. Ask, and change nothing until the
-user answers. Only on a clear yes:
+The TOOLS section lists the command-line tools this pack can drive, and what
+stands between each one and being usable. The same rule applies:
+
+- `authenticated` — somebody signed in on purpose. Strong enough to propose,
+  as `cli:<provider>`.
+- `not authenticated` — it is installed and nobody signed in. Ambiguous: it
+  may be there as something else's dependency. Do not propose. Carry it into
+  pass 2 and show the `NEXT` column, which is the exact command to sign in.
+- `not installed`, `does not answer` — no evidence either way. Carry it into
+  pass 2 without comment.
+
+Never run anything from the `NEXT` column. It is printed for the user.
+
+Show one line per proposal: the capability, the server or tool it came from,
+and how confident you are. Mark guesses as guesses. Ask, and change nothing
+until the user answers. Only on a clear yes:
 
 ```sh
 kyrio probe record --set <capability>=server:<prefix> --servers
+kyrio probe record --set <capability>=cli:<provider> --servers
 ```
 
 Repeat `--set` once per capability. `--servers` caches what was seen, so a

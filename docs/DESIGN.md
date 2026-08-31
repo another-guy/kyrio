@@ -429,15 +429,43 @@ there the fix would undo a decision rather than repair a fault.
 
 ### Adapter contract
 
-Every adapter under `providers/`:
+Every adapter under `providers/` declares `ID` — the value a config layer
+carries in `capabilities.*.provider` — plus `CAPABILITIES`, `TRANSPORT`,
+`BINARY`, and two probes, `health(run)` and `auth(run)`. And every adapter:
 
 - constructs arguments; never interpolates caller input into a shell string (I5)
-- runs its binary via `subprocess` with an argument list, never `shell=True`
+- runs its binary through the injected runner with an argument list, never
+  `shell=True`
 - parses to the broker's shape and returns it; never prints (S1)
 - has unit tests for argument construction and output parsing, against
   hand-written fixtures (I8)
 
 `providers/` is the only path where provider names may appear (I1).
+
+**Two probes, never one.** *Installed* and *signed in* are different states
+with different owners: one is an install a person may not be permitted to
+perform, the other is a sign-in nobody but them can do. A single boolean
+collapses them and sends half of all failures to the wrong remedy.
+
+**Presence is not evidence.** A binary can arrive as another tool's
+dependency, be bundled by policy, or be left behind by a trial, so a
+capability mapped on presence alone sends every later call somewhere wrong
+while the report calls it fine. Only an authenticated tool is proposed
+automatically; anything installed but unauthenticated is ambiguous and is
+carried into setup's second pass to be asked about.
+
+**Authentication is read from the exit code, never from the output.** The exit
+code is a contract a tool keeps across releases; the wording beside it is free
+to change, and an adapter that reads the words breaks on a release note.
+
+The probes are functions rather than argument lists because an adapter whose
+authentication check must name the host it is asking about cannot express that
+as a literal. A function costs nothing where a constant would do, and does not
+have to be redesigned when one will not.
+
+An adapter names no host. Which host a machine talks to — a public service or
+an enterprise installation — is a fact about that machine and belongs in its
+config (I2).
 
 ---
 

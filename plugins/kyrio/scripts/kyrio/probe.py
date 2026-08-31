@@ -23,7 +23,7 @@ import re
 import subprocess
 import sys
 
-from kyrio import capability, config
+from kyrio import capability, config, providers
 from kyrio.cli import table
 from kyrio.repo import Result
 
@@ -65,6 +65,15 @@ NEEDS_AUTH = "needs auth"
 PENDING = "pending"
 UNREACHABLE = "unreachable"
 UNKNOWN = "unknown"
+
+#: What a shipped adapter can do on this machine. Two probes, never one:
+#: installed and signed in are different states, and the remedy for each has a
+#: different owner -- an install someone may not be permitted to perform, and a
+#: sign-in nobody but the user can do.
+AUTHENTICATED = "authenticated"
+UNAUTHENTICATED = "not authenticated"
+NOT_INSTALLED = "not installed"
+BROKEN = "does not answer"
 
 #: Classified on the words, never on the mark printed beside them. Those marks
 #: are non-ASCII and do not survive a console codepage that cannot encode them
@@ -270,6 +279,63 @@ class Discovery:
         return [s for s in self.servers if s.usable]
 
 
+class Tool:
+    """One shipped adapter, and what this machine can do with it."""
+
+    def __init__(self, adapter, state, remedy=""):
+        self.adapter = adapter
+        self.state = state
+        self.remedy = remedy
+
+    @property
+    def id(self):
+        return self.adapter.ID
+
+    @property
+    def capabilities(self):
+        return ", ".join(self.adapter.CAPABILITIES)
+
+    @property
+    def usable(self):
+        """Signed in, and only that.
+
+        Presence is not evidence. A binary can be installed as something
+        else's dependency, bundled by policy, or left from a trial, and a
+        capability mapped on presence alone sends every later call somewhere
+        wrong while the report calls it fine. Somebody signing in is the
+        cheapest available proof that this machine is meant to reach it.
+        """
+        return self.state == AUTHENTICATED
+
+    def __repr__(self):
+        return "Tool(%s, %s)" % (self.id, self.state)
+
+
+def probe_tool(adapter, runner=None):
+    """Run an adapter's two probes and say what this machine has."""
+    runner = run if runner is None else runner
+
+    healthy = adapter.health(runner)
+    if healthy.outcome == MISSING:
+        return Tool(adapter, NOT_INSTALLED, getattr(adapter, "INSTALL", ""))
+    if not healthy.answered:
+        return Tool(adapter, BROKEN, healthy.detail)
+
+    # Only now, and separately. Something that runs still proves nothing about
+    # whether anyone here is entitled to use it.
+    signed_in = adapter.auth(runner)
+    if signed_in.answered:
+        return Tool(adapter, AUTHENTICATED)
+    return Tool(adapter, UNAUTHENTICATED, getattr(adapter, "LOGIN", ""))
+
+
+def probe_tools(registry=None, runner=None):
+    """Every shipped adapter, in id order."""
+    registry = providers if registry is None else registry
+    return [probe_tool(registry.ADAPTERS[key], runner=runner)
+            for key in sorted(registry.ADAPTERS)]
+
+
 def server_state(text):
     """Classify a status phrase. Unrecognized is ``unknown``, never a guess.
 
@@ -329,7 +395,7 @@ def discover_servers(runner=None):
 # --------------------------------------------------------------- report
 
 
-def report(cwd, machine_path=None, discovery=None):
+def report(cwd, machine_path=None, discovery=None, tools=None):
     """What this machine has. Writes nothing.
 
     ``discovery`` is passed in rather than performed here. Discovery runs
@@ -362,6 +428,9 @@ def report(cwd, machine_path=None, discovery=None):
         "SERVERS",
         _servers_block(discovery),
         "",
+        "TOOLS",
+        _tools_block(tools),
+        "",
         "RECORDED",
         table(("FILE", "STATE"), [
             (str(machine_path),
@@ -382,6 +451,17 @@ def report(cwd, machine_path=None, discovery=None):
                   recorded=machine_path.is_file(),
                   permission=has_permission(),
                   connected=len(discovery.connected) if discovery else 0)
+
+
+def _tools_block(tools):
+    """Shipped adapters, and what stands between them and being usable."""
+    if tools is None:
+        return "  not probed"
+    if not tools:
+        return "  none ship yet"
+    return table(("PROVIDER", "SERVES", "STATE", "NEXT"),
+                 [(t.id, t.capabilities, t.state, t.remedy)
+                  for t in tools]).rstrip("\n")
 
 
 def _servers_block(discovery):

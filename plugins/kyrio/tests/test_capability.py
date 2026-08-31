@@ -380,20 +380,32 @@ class TestTransportOrder(unittest.TestCase):
 
 
 class TestRegistry(unittest.TestCase):
-    def test_the_shipped_registry_holds_only_what_has_a_caller(self):
-        """An adapter written before the workflow that calls it encodes a guess
-        about a shape nobody has run against."""
-        self.assertEqual(providers.known(), [])
-
     def test_an_unknown_provider_is_none_rather_than_an_error(self):
         self.assertIsNone(providers.get("provider-a"))
 
-    def test_an_empty_registry_is_not_a_broken_machine(self):
-        """Resolution still reports, and still says the useful thing."""
+    def test_a_provider_nothing_ships_for_is_not_a_broken_machine(self):
+        """Resolution still reports, and still says the useful thing. This is
+        the ordinary state of a machine using something this pack has not
+        reached yet, which is most machines."""
         r = one("scm", {"transport": "cli", "provider": "provider-a"},
                 registry=providers)
         self.assertEqual(r.status, capability.CONFIGURED)
         self.assertFalse(r.usable)
+        self.assertIn("provider-a", r.remediation)
+
+    def test_every_shipped_id_resolves_through_the_real_registry(self):
+        """The contract itself is checked in ``test_providers.py``; this is
+        the half that matters here -- an id in a config file finds an adapter.
+        """
+        for provider in providers.known():
+            adapter = providers.get(provider)
+            entry = {"transport": adapter.TRANSPORT, "provider": provider}
+            r = capability.resolve(adapter.CAPABILITIES[0],
+                                   resolved(caps(**{
+                                       adapter.CAPABILITIES[0]: entry})),
+                                   registry=providers)
+            with self.subTest(provider=provider):
+                self.assertTrue(r.usable)
 
 
 if __name__ == "__main__":
