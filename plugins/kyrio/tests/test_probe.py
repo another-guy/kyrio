@@ -1,3 +1,4 @@
+import ast
 import json
 import pathlib
 import shutil
@@ -139,6 +140,203 @@ class TestReport(Sandbox):
         for name in config.CAPABILITIES:
             with self.subTest(capability=name):
                 self.assertIn(name, result.payload)
+
+
+FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
+LISTING = (FIXTURES / "mcp_list.txt").read_text(encoding="utf-8")
+
+
+def answering(output):
+    """A runner that answers with a fixed listing."""
+    return lambda argv: probe.Ran(probe.ANSWERED, argv, output)
+
+
+def failing(outcome, detail):
+    return lambda argv: probe.Ran(outcome, argv, detail=detail)
+
+
+class TestRun(unittest.TestCase):
+    """The execution primitive: by execution, never by presence."""
+
+    def test_a_program_that_answers(self):
+        ran = probe.run([sys.executable, "-c", "print('here')"])
+        self.assertEqual(ran.outcome, probe.ANSWERED)
+        self.assertTrue(ran.answered)
+        self.assertIn("here", ran.output)
+
+    def test_a_name_that_resolves_to_nothing(self):
+        """A name on PATH proves nothing, so absence has to be a real answer
+        rather than an exception the caller has to catch."""
+        ran = probe.run(["kyrio-no-such-program-anywhere"])
+        self.assertEqual(ran.outcome, probe.MISSING)
+        self.assertFalse(ran.answered)
+
+    def test_a_program_that_runs_and_refuses(self):
+        """Installed and logged in are different failures with different
+        fixes, and this is the shape the second one arrives in."""
+        ran = probe.run([sys.executable, "-c", "raise SystemExit(3)"])
+        self.assertEqual(ran.outcome, probe.FAILED)
+        self.assertIn("3", ran.detail)
+
+    def test_what_it_said_on_the_error_stream_is_kept(self):
+        ran = probe.run(
+            [sys.executable, "-c", "import sys; sys.stderr.write('log in')"])
+        self.assertIn("log in", ran.output)
+
+    def test_a_program_that_never_answers(self):
+        ran = probe.run([sys.executable, "-c", "import time; time.sleep(30)"],
+                        timeout=1)
+        self.assertEqual(ran.outcome, probe.TIMED_OUT)
+
+    def test_no_subprocess_call_anywhere_asks_for_a_shell(self):
+        """I5 reaches down to every binary this pack runs.
+
+        Read as syntax rather than as text: a docstring saying "never
+        shell=True" would satisfy a substring search, and an adapter that
+        actually passed it would be indistinguishable from one that did not.
+        Scoped to the whole package on purpose -- ``providers/`` is where the
+        next binary gets run, and it should arrive under this rule already.
+        """
+        package = pathlib.Path(probe.__file__).parent
+        offenders = []
+        for source in sorted(package.rglob("*.py")):
+            tree = ast.parse(source.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                for keyword in node.keywords:
+                    if keyword.arg == "shell":
+                        offenders.append("%s:%d" % (source.name, node.lineno))
+        self.assertEqual(offenders, [])
+
+    def test_something_was_actually_read(self):
+        """The guard above passes trivially if the glob finds nothing."""
+        package = pathlib.Path(probe.__file__).parent
+        self.assertGreater(len(list(package.rglob("*.py"))), 5)
+
+
+class TestServerState(unittest.TestCase):
+    def test_the_words_decide_and_not_the_mark(self):
+        """The marks beside each status are non-ASCII and do not survive a
+        console codepage that cannot encode them. The words do."""
+        self.assertEqual(probe.server_state("Connected"), probe.CONNECTED)
+        self.assertEqual(probe.server_state("connected"), probe.CONNECTED)
+        self.assertEqual(probe.server_state("Needs authentication"),
+                         probe.NEEDS_AUTH)
+
+    def test_an_unfamiliar_status_is_not_rounded_to_a_familiar_one(self):
+        """This reads another program's output, which may grow a state this
+        version has never seen. Guessing is how a report becomes confidently
+        wrong."""
+        self.assertEqual(probe.server_state("Rehydrating"), probe.UNKNOWN)
+
+    def test_needs_auth_is_not_read_as_connected(self):
+        """Both phrases can appear on one line; the more specific wins."""
+        self.assertEqual(
+            probe.server_state("connected but needs authentication"),
+            probe.NEEDS_AUTH)
+
+
+class TestParseServers(unittest.TestCase):
+    def setUp(self):
+        self.servers = probe.parse_servers(LISTING)
+        self.by_name = {s.name: s for s in self.servers}
+
+    def test_every_entry_is_read(self):
+        self.assertEqual(len(self.servers), 6)
+
+    def test_the_header_and_the_footnote_are_not_servers(self):
+        for name in self.by_name:
+            self.assertNotIn("Checking", name)
+            self.assertNotIn("Note", name)
+
+    def test_each_state_is_classified(self):
+        self.assertEqual(self.by_name["example-notes"].state, probe.CONNECTED)
+        self.assertEqual(self.by_name["example-tickets"].state,
+                         probe.NEEDS_AUTH)
+        self.assertEqual(self.by_name["example-pipelines"].state,
+                         probe.PENDING)
+        self.assertEqual(self.by_name["example-metrics"].state,
+                         probe.UNREACHABLE)
+
+    def test_an_unknown_state_keeps_the_words_it_was_given(self):
+        server = self.by_name["example-future"]
+        self.assertEqual(server.state, probe.UNKNOWN)
+        self.assertIn("Rehydrating", server.reported)
+
+    def test_an_address_containing_a_spaced_hyphen_survives(self):
+        """The status is split from the right precisely for this."""
+        server = self.by_name["example-legacy"]
+        self.assertEqual(server.state, probe.CONNECTED)
+        self.assertIn("old - new", server.address)
+
+    def test_only_connected_counts_as_usable(self):
+        usable = [s.name for s in self.servers if s.usable]
+        self.assertEqual(usable, ["example-notes", "example-legacy"])
+
+    def test_nothing_at_all_is_not_an_error(self):
+        self.assertEqual(probe.parse_servers(""), [])
+
+
+class TestDiscovery(unittest.TestCase):
+    def test_a_listing_becomes_servers(self):
+        found = probe.discover_servers(runner=answering(LISTING))
+        self.assertEqual(len(found.servers), 6)
+        self.assertIsNone(found.problem)
+        self.assertEqual(len(found.connected), 2)
+
+    def test_nothing_found_and_discovery_broken_are_different_answers(self):
+        """A list that is empty for both reasons cannot say which, and the two
+        have entirely different fixes."""
+        empty = probe.discover_servers(runner=answering(""))
+        broken = probe.discover_servers(
+            runner=failing(probe.MISSING, "not found"))
+        self.assertEqual(empty.servers, [])
+        self.assertIsNone(empty.problem)
+        self.assertEqual(broken.servers, [])
+        self.assertIsNotNone(broken.problem)
+
+    def test_the_problem_names_the_command_that_could_not_run(self):
+        broken = probe.discover_servers(
+            runner=failing(probe.TIMED_OUT, "no answer within 20s"))
+        self.assertIn("claude mcp list", broken.problem)
+        self.assertIn("no answer", broken.problem)
+
+
+class TestReportServers(Sandbox):
+    def test_nobody_looked_is_said_plainly(self):
+        """Discovery health-checks every server over the network. A report
+        that quietly did that would hide seconds of work."""
+        result = probe.report(self.root, machine_path=self.machine)
+        self.assertIn("not probed", result.payload)
+        self.assertEqual(result.meta["connected"], 0)
+
+    def test_discovered_servers_are_listed(self):
+        result = probe.report(
+            self.root, machine_path=self.machine,
+            discovery=probe.discover_servers(runner=answering(LISTING)))
+        self.assertIn("example-notes", result.payload)
+        self.assertIn("needs auth", result.payload)
+        self.assertEqual(result.meta["connected"], 2)
+
+    def test_a_machine_with_no_servers_is_not_a_broken_one(self):
+        result = probe.report(
+            self.root, machine_path=self.machine,
+            discovery=probe.discover_servers(runner=answering("")))
+        self.assertIn("none configured", result.payload)
+
+    def test_discovery_that_could_not_run_says_so(self):
+        result = probe.report(
+            self.root, machine_path=self.machine,
+            discovery=probe.discover_servers(
+                runner=failing(probe.MISSING, "not found")))
+        self.assertIn("not discovered", result.payload)
+
+    def test_reporting_still_writes_nothing(self):
+        probe.report(self.root, machine_path=self.machine,
+                     discovery=probe.discover_servers(runner=answering(LISTING)))
+        self.assertFalse(self.machine.exists())
+        self.assertFalse(self.settings.exists())
 
 
 class TestPermission(Sandbox):

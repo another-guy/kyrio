@@ -1,0 +1,10 @@
+Checking MCP server health…
+
+example-notes: https://notes.example.com/mcp/v1 - ✔ Connected
+example-tickets: https://tickets.example.com/mcp/v1 - ! Needs authentication
+example-pipelines: node /opt/example/pipelines-server.js - ⏸ Pending approval
+example-metrics: https://metrics.example.com/mcp/v1 - ✘ Failed to connect
+example-legacy: node /opt/example/run.js --label "old - new" - ✔ Connected
+example-future: https://future.example.com/mcp/v1 - ~ Rehydrating
+
+Note: servers disabled for this project are not health-checked

@@ -137,6 +137,7 @@ kyrio/                              private git repo; also its own marketplace
     scripts/
       kyrio/
         __main__.py                 verb dispatch
+        capability.py               transport resolution per capability
         config.py                   cascade discovery + merge      (S2)
         emit.py                     response framing               (S1)
         ingest.py                   inbound normalization          (S3)
@@ -594,6 +595,23 @@ Connected-server discovery prefers `claude mcp list`, because only that
 distinguishes connected from needs-auth from failed, and that distinction is the
 entire reason to re-run setup. Parsing configuration files is the fallback.
 Results cache under `~/.claude/kyrio/state/`.
+
+Reading another program's output calls for two rules. Each entry is classified
+on the **words** of its status and never on the mark printed beside it: those
+marks are non-ASCII and do not survive a console codepage that cannot encode
+them, which is the same failure the response stream is configured against. And
+a status this version does not recognize classifies as `unknown` and is
+repeated back verbatim, never rounded to the nearest status it does know — the
+listing belongs to a program free to grow a state nobody here has seen, and
+rounding is how a report becomes confidently wrong. Lines that do not fit the
+shape are skipped rather than treated as errors, so an added banner cannot
+break setup.
+
+Discovery is passed into the report rather than performed by it. It runs
+another program and health-checks every server over the network, and a function
+whose job is to report is the wrong place to hide seconds of work. Which
+discovered server serves which capability is a judgment, not a fact, so the
+broker lists what exists and the skill above proposes the mapping (I9).
 
 ```
 $ /kyrio:setup

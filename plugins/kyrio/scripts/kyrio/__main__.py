@@ -33,6 +33,7 @@ kyrio repo churn           what changed most, and how often
 kyrio repo owners [<path>] ownership, from an ownership file or from history
 kyrio repo blame <path>:<line>[-<line>]
 kyrio probe                what this machine has; writes nothing
+kyrio probe servers        connected servers, and the state of each
 kyrio probe record         record the interpreter for the launcher to reuse
 kyrio probe permission [--apply]
                            the one permission rule the broker needs
@@ -229,7 +230,7 @@ def probe_command(args):
     rest = list(args.rest)
     verb = rest[0] if rest else "report"
     if verb not in PROBE_VERBS:
-        return emit.error("usage: kyrio probe [record|permission]",
+        return emit.error("usage: kyrio probe [servers|record|permission]",
                           known=sorted(PROBE_VERBS))
     try:
         result = PROBE_VERBS[verb](args, rest[1:])
@@ -243,7 +244,21 @@ def probe_command(args):
 
 def _probe_report(args, rest):
     start = pathlib.Path(args.cwd).resolve() if args.cwd else None
-    return probe.report(start)
+    return probe.report(start, discovery=probe.discover_servers())
+
+
+def _probe_servers(args, rest):
+    """Discovered servers, as fact. Which one serves which capability is a
+    judgment, and judgment belongs to the skill above (I9)."""
+    discovery = probe.discover_servers()
+    if discovery.problem:
+        raise probe.ProbeError(discovery.problem)
+    rows = [(s.name, s.state, s.address) for s in discovery.servers]
+    payload = (cli.table(("NAME", "STATE", "ADDRESS"), rows) if rows
+               else "  none configured\n")
+    return repo.Result("servers", payload,
+                       servers=len(discovery.servers),
+                       connected=len(discovery.connected))
 
 
 def _probe_record(args, rest):
@@ -285,6 +300,7 @@ PROBE_VERBS = {
     "report": _probe_report,
     "record": _probe_record,
     "permission": _probe_permission,
+    "servers": _probe_servers,
 }
 
 

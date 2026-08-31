@@ -41,6 +41,42 @@ VERSION_PROGRAM = (
     "print('%d.%d.%d' % sys.version_info[:3]); "
     "print(sys.executable)")
 
+#: Long enough for a cold start on a slow machine, short enough that a binary
+#: which never answers does not hold up a session. A probe that times out is a
+#: probe that failed: waiting longer would not change the report.
+PROBE_TIMEOUT = 20
+
+#: How a probe ended. Kept apart because they have different fixes: nothing to
+#: run means install something, and ran-and-refused usually means log in.
+MISSING = "missing"
+FAILED = "failed"
+ANSWERED = "answered"
+TIMED_OUT = "timed out"
+
+#: Connected-server discovery. Preferred over reading configuration files
+#: because only this distinguishes connected from needs-auth from failed, and
+#: that distinction is the entire reason setup is worth re-running.
+SERVER_LIST = ["claude", "mcp", "list"]
+
+CONNECTED = "connected"
+NEEDS_AUTH = "needs auth"
+PENDING = "pending"
+UNREACHABLE = "unreachable"
+UNKNOWN = "unknown"
+
+#: Classified on the words, never on the mark printed beside them. Those marks
+#: are non-ASCII and do not survive a console codepage that cannot encode them
+#: -- the same failure the report stream is configured against. Order matters:
+#: the first phrase found wins, so the more specific phrases come first.
+SERVER_STATES = (
+    (NEEDS_AUTH, ("needs authentication", "not authenticated",
+                  "authentication required", "needs auth")),
+    (PENDING, ("pending",)),
+    (UNREACHABLE, ("failed", "error", "disconnected", "unreachable",
+                   "timed out", "timeout")),
+    (CONNECTED, ("connected",)),
+)
+
 #: Where the machine layer and its shell-readable mirror live.
 STATE_DIR = pathlib.Path.home() / ".claude" / "kyrio" / "state"
 INTERPRETER_FILE = STATE_DIR / "interpreter"
@@ -120,11 +156,165 @@ def choose_interpreter():
         "absolute path of one" % ".".join(str(p) for p in MINIMUM_PYTHON))
 
 
+# ------------------------------------------------------------ execution
+
+
+class Ran:
+    """What happened when a probe was executed."""
+
+    def __init__(self, outcome, argv, output="", detail=""):
+        self.outcome = outcome
+        self.argv = list(argv)
+        self.output = output
+        self.detail = detail
+
+    @property
+    def answered(self):
+        return self.outcome == ANSWERED
+
+    @property
+    def command(self):
+        return " ".join(self.argv)
+
+    def __repr__(self):
+        return "Ran(%s, %s)" % (self.outcome, self.command)
+
+
+def run(argv, timeout=PROBE_TIMEOUT):
+    """Execute a probe and classify what happened.
+
+    An argument list, never a shell string, and never ``shell=True`` (I5).
+    Nothing a caller supplies reaches this function: probes are declared, not
+    composed from input.
+
+    Every failure is a return value rather than an exception. A probe that
+    cannot run is an ordinary answer about this machine -- it is most of what
+    the report has to say -- and raising would make the caller handle four
+    exception types to write four table rows.
+    """
+    try:
+        result = subprocess.run(
+            list(argv), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout)
+    except FileNotFoundError:
+        return Ran(MISSING, argv, detail="not found")
+    except subprocess.TimeoutExpired:
+        return Ran(TIMED_OUT, argv, detail="no answer within %ds" % timeout)
+    except OSError as exc:
+        return Ran(MISSING, argv, detail=str(exc))
+
+    output = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0:
+        return Ran(FAILED, argv, output, "exit %d" % result.returncode)
+    return Ran(ANSWERED, argv, output)
+
+
+# -------------------------------------------------------------- servers
+
+
+class Server:
+    """One connected-server entry, as discovery reported it."""
+
+    def __init__(self, name, address, state, reported):
+        self.name = name
+        self.address = address
+        self.state = state
+        #: The status text as printed. Kept so that a state this version does
+        #: not recognize is still shown to a person verbatim rather than
+        #: rounded to the nearest one it does.
+        self.reported = reported
+
+    @property
+    def usable(self):
+        return self.state == CONNECTED
+
+    def __repr__(self):
+        return "Server(%s, %s)" % (self.name, self.state)
+
+
+class Discovery:
+    """What discovery found, or why it found nothing.
+
+    Nothing found and discovery not working are different answers, and a list
+    that is empty for both reasons cannot say which.
+    """
+
+    def __init__(self, servers=(), problem=None):
+        self.servers = list(servers)
+        self.problem = problem
+
+    @property
+    def connected(self):
+        return [s for s in self.servers if s.usable]
+
+
+def server_state(text):
+    """Classify a status phrase. Unrecognized is ``unknown``, never a guess.
+
+    Rounding an unfamiliar status to the nearest familiar one is how a report
+    becomes confidently wrong: this runs against another program's output,
+    which is free to grow a state this version has never seen.
+    """
+    lowered = text.lower()
+    for state, phrases in SERVER_STATES:
+        if any(phrase in lowered for phrase in phrases):
+            return state
+    return UNKNOWN
+
+
+def parse_servers(text):
+    """Read the listing. Lines that do not fit the shape are skipped.
+
+    Skipping rather than failing: the listing carries a header line and blank
+    lines today and may carry more tomorrow, and a discovery that breaks on an
+    added banner would be a fragile thing to hang setup on.
+    """
+    servers = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        name, _, rest = line.partition(":")
+        # "<name>: <address> - <status>". Split the status from the right: an
+        # address can contain a hyphen, and the status never does.
+        address, separator, status = rest.rpartition(" - ")
+        if not separator:
+            continue
+        name = name.strip()
+        status = status.strip()
+        if not name or not status:
+            continue
+        servers.append(Server(name, address.strip(),
+                              server_state(status), status))
+    return servers
+
+
+def discover_servers(runner=None):
+    """Ask the CLI what servers exist and what state each is in.
+
+    ``runner`` is injectable so the parsing can be tested against hand-written
+    listings (I8), and so a test never depends on what is connected on the
+    machine running it.
+    """
+    runner = run if runner is None else runner
+    ran = runner(SERVER_LIST)
+    if ran.answered:
+        return Discovery(parse_servers(ran.output))
+    return Discovery(problem="%s: %s" % (" ".join(SERVER_LIST),
+                                         ran.detail or ran.outcome))
+
+
 # --------------------------------------------------------------- report
 
 
-def report(cwd, machine_path=None):
-    """What this machine has. Writes nothing."""
+def report(cwd, machine_path=None, discovery=None):
+    """What this machine has. Writes nothing.
+
+    ``discovery`` is passed in rather than performed here. Discovery runs
+    another program and health-checks every server over the network, and a
+    function that reports is a bad place to hide seconds of work; the command
+    layer decides when to pay for it.
+    """
     machine_path = pathlib.Path(machine_path or config.MACHINE_CONFIG)
     try:
         chosen = choose_interpreter()
@@ -147,6 +337,9 @@ def report(cwd, machine_path=None):
         "CAPABILITY",
         table(("NAME", "TRANSPORT", "STATUS"), rows).rstrip("\n"),
         "",
+        "SERVERS",
+        _servers_block(discovery),
+        "",
         "RECORDED",
         table(("FILE", "STATE"), [
             (str(machine_path),
@@ -165,7 +358,21 @@ def report(cwd, machine_path=None):
     return Result("probe", "\n".join(lines) + "\n",
                   interpreter=bool(chosen),
                   recorded=machine_path.is_file(),
-                  permission=has_permission())
+                  permission=has_permission(),
+                  connected=len(discovery.connected) if discovery else 0)
+
+
+def _servers_block(discovery):
+    """The servers section, including the case where nobody looked."""
+    if discovery is None:
+        return "  not probed"
+    if discovery.problem:
+        return "  not discovered: %s" % discovery.problem
+    if not discovery.servers:
+        return "  none configured"
+    return table(("NAME", "STATE", "ADDRESS"),
+                 [(s.name, s.state, s.address)
+                  for s in discovery.servers]).rstrip("\n")
 
 
 def _recorded_interpreter(machine_path):
