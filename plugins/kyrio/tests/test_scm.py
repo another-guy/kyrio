@@ -9,6 +9,7 @@ capturing the argument list; what comes back is checked against the fixture.
 """
 
 import pathlib
+import tempfile
 import unittest
 
 import _path  # noqa: F401  -- import side effect: puts scripts/ on sys.path
@@ -34,6 +35,21 @@ def answering(output, outcome=probe.ANSWERED, detail=""):
     def run(argv, cwd=None, **kw):
         calls.append((list(argv), cwd))
         return probe.Ran(outcome, argv, output, detail)
+
+    run.calls = calls
+    return run
+
+
+def scripted(*answers):
+    """A runner that answers each call differently, in order."""
+    calls = []
+    remaining = list(answers)
+
+    def run(argv, cwd=None, **kw):
+        calls.append((list(argv), cwd))
+        output, outcome = remaining.pop(0) if remaining else ("", probe.ANSWERED)
+        return probe.Ran(outcome, argv, output, "exit 1"
+                         if outcome == probe.FAILED else "")
 
     run.calls = calls
     return run
@@ -204,6 +220,152 @@ class TestLog(unittest.TestCase):
         self.assertIn("not installed", caught.exception.message)
 
 
+class CommentSandbox(unittest.TestCase):
+    def setUp(self):
+        self.dir = pathlib.Path(tempfile.mkdtemp(prefix="kyrio-comment-"))
+        self.addCleanup(_remove, self.dir)
+        self.body = self.dir / "note.md"
+        self.body.write_text("Consider asserting this instead.\n",
+                             encoding="utf-8")
+
+    def comment(self, identifier="4821", path="src/api.py", line=88):
+        return scm.read_comment(identifier, path, line, str(self.body))
+
+
+class TestReadComment(CommentSandbox):
+    def test_the_body_comes_through_the_inbound_door(self):
+        """It is a file the broker did not produce, which is what ``ingest``
+        is for -- and the bound matters most on the way out, where something
+        is about to be published under the user's name (S3)."""
+        self.assertEqual(self.comment().body,
+                         "Consider asserting this instead.\n")
+
+    def test_a_line_that_is_not_a_line_number(self):
+        for line in ("zero", "", None, "0", "-4", "1.5"):
+            with self.subTest(line=line):
+                with self.assertRaises(scm.ScmError):
+                    self.comment(line=line)
+
+    def test_a_comment_with_no_file_to_attach_to(self):
+        with self.assertRaises(scm.ScmError):
+            scm.read_comment("4821", "", 88, str(self.body))
+
+    def test_an_empty_body_is_refused(self):
+        self.body.write_text("   \n\n", encoding="utf-8")
+        with self.assertRaises(scm.ScmError) as caught:
+            self.comment()
+        self.assertIn("nothing to say", caught.exception.message)
+
+    def test_a_body_file_that_is_not_there(self):
+        with self.assertRaises(scm.ScmError):
+            scm.read_comment("4821", "src/api.py", 88,
+                             str(self.dir / "absent.md"))
+
+
+class TestDraft(CommentSandbox):
+    def test_drafting_sends_nothing_and_runs_nothing(self):
+        """The safe path is the default one, and it must not even need the
+        tool: a draft on a machine where nothing is installed still works."""
+        run = answering("")
+        result = scm.pr_comment(resolution(), self.comment(), str(self.body),
+                                runner=run)
+        self.assertEqual(run.calls, [])
+        self.assertFalse(result.meta["posted"])
+
+    def test_the_draft_shows_where_it_would_land(self):
+        payload = scm.pr_comment(resolution(), self.comment(), str(self.body),
+                                 runner=answering("")).payload
+        self.assertIn("4821", payload)
+        self.assertIn("src/api.py", payload)
+        self.assertIn("88", payload)
+        self.assertIn("Consider asserting this instead.", payload)
+
+    def test_an_identifier_the_host_would_reject_stops_at_the_draft(self):
+        """Better to refuse before the user reads a draft that could never be
+        sent than after they have approved it."""
+        with self.assertRaises(scm.ScmError):
+            scm.pr_comment(resolution(), self.comment(identifier="main"),
+                           str(self.body), runner=answering(""))
+
+
+class TestPost(CommentSandbox):
+    HEAD = '{"headRefOid": "0f1e2d3c4b5a69788796a5b4c3d2e1f009876543"}'
+    LANDED = '{"html_url": "https://example.com/pulls/4821#discussion_r1"}'
+
+    def test_posting_names_the_commit_the_change_ends_at(self):
+        """A line comment has to name a commit, and the caller does not know
+        it, so it is fetched first."""
+        run = scripted((self.HEAD, probe.ANSWERED),
+                       (self.LANDED, probe.ANSWERED))
+        scm.pr_comment(resolution(), self.comment(), str(self.body),
+                       post=True, runner=run)
+        first, second = run.calls[0][0], run.calls[1][0]
+        self.assertEqual(first[:3], ["gh", "pr", "view"])
+        self.assertIn("--json", first)
+        self.assertEqual(second[:2], ["gh", "api"])
+        self.assertIn("--method", second)
+        self.assertIn("POST", second)
+
+    def test_the_body_travels_as_a_file(self):
+        """Prose with newlines and quoting in it is the wrong thing to be
+        fighting the platform's argument rules over."""
+        run = scripted((self.HEAD, probe.ANSWERED),
+                       (self.LANDED, probe.ANSWERED))
+        scm.pr_comment(resolution(), self.comment(), str(self.body),
+                       post=True, runner=run)
+        self.assertIn("body=@%s" % self.body, run.calls[1][0])
+
+    def test_the_repository_is_left_for_the_tool_to_work_out(self):
+        run = scripted((self.HEAD, probe.ANSWERED),
+                       (self.LANDED, probe.ANSWERED))
+        scm.pr_comment(resolution(), self.comment(), str(self.body),
+                       post=True, runner=run)
+        self.assertIn("repos/{owner}/{repo}/pulls/4821/comments",
+                      run.calls[1][0])
+
+    def test_where_it_landed_is_reported(self):
+        run = scripted((self.HEAD, probe.ANSWERED),
+                       (self.LANDED, probe.ANSWERED))
+        result = scm.pr_comment(resolution(), self.comment(), str(self.body),
+                                post=True, runner=run)
+        self.assertTrue(result.meta["posted"])
+        self.assertIn("discussion_r1", result.payload)
+
+    def test_a_failure_fetching_the_commit_sends_nothing(self):
+        """The important safety property: the first call failing must not
+        leave the second one to run against a guess."""
+        run = scripted(("no such pull request", probe.FAILED))
+        with self.assertRaises(scm.ScmError):
+            scm.pr_comment(resolution(), self.comment(), str(self.body),
+                           post=True, runner=run)
+        self.assertEqual(len(run.calls), 1)
+
+    def test_a_change_with_no_commit_reported_sends_nothing(self):
+        run = scripted(("{}", probe.ANSWERED))
+        with self.assertRaises(scm.ScmError):
+            scm.pr_comment(resolution(), self.comment(), str(self.body),
+                           post=True, runner=run)
+        self.assertEqual(len(run.calls), 1)
+
+    def test_an_answer_without_a_location_is_still_a_success(self):
+        """Where it landed is useful, not essential. The comment was sent."""
+        run = scripted((self.HEAD, probe.ANSWERED), ("", probe.ANSWERED))
+        result = scm.pr_comment(resolution(), self.comment(), str(self.body),
+                                post=True, runner=run)
+        self.assertTrue(result.meta["posted"])
+
+
+class TestManualComment(CommentSandbox):
+    def test_the_instructions_carry_the_comment_verbatim(self):
+        text = scm.manual_comment_instructions(self.comment())
+        self.assertIn("Consider asserting this instead.", text)
+        self.assertIn("src/api.py", text)
+
+    def test_they_say_plainly_that_nothing_was_sent(self):
+        self.assertIn("Nothing was sent",
+                      scm.manual_comment_instructions(self.comment()))
+
+
 class TestManualTransport(unittest.TestCase):
     def test_manual_is_recognized_from_the_resolution(self):
         self.assertTrue(scm.requires_manual(resolution(transport="manual")))
@@ -238,7 +400,9 @@ class TestAdapterContractForScm(unittest.TestCase):
 
     def test_each_can_name_and_fetch_a_change(self):
         for adapter in providers.for_capability("scm"):
-            for name in ("pr_identifier", "pr_diff", "log", "parse_log"):
+            for name in ("pr_identifier", "pr_diff", "log", "parse_log",
+                         "pr_head", "parse_head", "pr_comment",
+                         "parse_comment"):
                 with self.subTest(adapter=adapter.ID, member=name):
                     self.assertTrue(callable(getattr(adapter, name, None)))
 
@@ -251,6 +415,11 @@ class TestAdapterContractForScm(unittest.TestCase):
     def test_scm_is_a_capability_the_broker_knows(self):
         self.assertIn("scm", config.CAPABILITIES)
         self.assertNotIn("scm", config.INTRINSIC)
+
+
+def _remove(directory):
+    import shutil
+    shutil.rmtree(directory, ignore_errors=True)
 
 
 if __name__ == "__main__":

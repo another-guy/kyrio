@@ -334,13 +334,17 @@ raised, because a result is not worth losing to a codepage.
 |---|---|---|
 | `ok` | 0 | Header plus payload. Proceed. |
 | `call` | 0 | This is not the result. Call the named tool, then continue. |
+| `draft` | 0 | Written, not sent. The content, and what sending it would take. |
 | `manual` | 0 | No automated transport. Instructions for the user; wait. |
 | `unavailable` | 0 | Not configured on this machine, with the remediation. |
 | `error` | 1 | Bad arguments, broken transport, expired auth. |
 
-A non-zero exit means the program failed. Delegation and manual transport are
-ordinary control flow, not failures, and reporting them as failures invites
-retrying, apologising, and hunting for alternative commands.
+A non-zero exit means the program failed. Delegation, drafting and manual
+transport are ordinary control flow, not failures, and reporting them as
+failures invites retrying, apologising, and hunting for alternative commands.
+`draft` in particular has to read as a success, because it is the outcome the
+write policy wants: a caller told its draft failed will look for a way to send
+one that works.
 
 ### Delegating to a tool the broker cannot call
 

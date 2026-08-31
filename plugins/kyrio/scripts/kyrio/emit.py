@@ -38,12 +38,17 @@ _HEADER_ONLY = frozenset({"call", "unavailable"})
 _EXIT_CODES = {
     "ok": EXIT_OK,
     "call": EXIT_OK,
+    "draft": EXIT_OK,
     "manual": EXIT_OK,
     "unavailable": EXIT_OK,
     "error": EXIT_ERROR,
 }
 
 _CALL_NEXT = "This is not the result. Call the tool named above, then continue."
+_DRAFT_NEXT = (
+    "Nothing was sent. Show this to the user exactly as it stands, and re-run "
+    "with --post only after they have said yes."
+)
 _MANUAL_NEXT = (
     "No automated transport for this on this machine. Give the user the "
     "instructions below and wait."
@@ -72,6 +77,22 @@ def call(tool, args, *, expect=None, next=_CALL_NEXT):
         header["expect"] = list(expect)
     header["next"] = next
     return _write(header, None)
+
+
+def draft(kind, payload, *, next=_DRAFT_NEXT, **meta):
+    """Written, not sent. The default for every write verb (I6).
+
+    A wrong comment on a colleague's change is a professional cost rather than
+    a technical one, and deleting it thirty seconds later does not unsend the
+    notification. So the safe path is the one that happens by default, and
+    sending takes a second, deliberate call.
+
+    Exits zero: a draft is a successful outcome, not a refusal.
+    """
+    header = {"status": "draft", "kind": kind}
+    header.update(meta)
+    header["next"] = next
+    return _write(header, payload)
 
 
 def manual(capability, instructions, *, next=_MANUAL_NEXT):

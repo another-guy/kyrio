@@ -65,12 +65,19 @@ class TestFraming(unittest.TestCase):
 
 class TestStatuses(unittest.TestCase):
     def test_only_error_exits_non_zero(self):
-        cases = [("ok", 0), ("call", 0), ("manual", 0), ("unavailable", 0),
-                 ("error", 1)]
-        for status, expected in cases:
+        """Read from the table rather than restated, so a status added later
+        cannot slip in without this rule being applied to it. A non-zero exit
+        means the program failed; delegation, drafting, manual transport and
+        an unconfigured capability are ordinary control flow."""
+        for status in emit._EXIT_CODES:
             with self.subTest(status=status):
                 code, _, _ = framed({"status": status})
-                self.assertEqual(code, expected)
+                self.assertEqual(code, 1 if status == "error" else 0)
+
+    def test_the_statuses_are_the_ones_the_design_names(self):
+        self.assertEqual(
+            sorted(emit._EXIT_CODES),
+            ["call", "draft", "error", "manual", "ok", "unavailable"])
 
     def test_unknown_status_is_a_programming_error(self):
         with self.assertRaises(ValueError):
@@ -136,6 +143,18 @@ class TestConstructors(unittest.TestCase):
         self.assertEqual(header["capability"], "obs")
         self.assertTrue(header["next"])
         self.assertEqual(payload, "1. Open ...\n")
+
+    def test_draft_carries_the_content_and_says_it_was_not_sent(self):
+        """The default for every write verb. A wrong comment on a colleague's
+        change is a professional cost, and deleting it does not unsend the
+        notification -- so the safe path is the one that happens by
+        default (I6)."""
+        code, header, payload = self.emitted(
+            emit.draft, "comment", "Consider asserting this.\n")
+        self.assertEqual(code, 0)
+        self.assertEqual(header["status"], "draft")
+        self.assertIn("--post", header["next"])
+        self.assertIn("Consider asserting this.", payload)
 
     def test_unavailable_carries_remediation(self):
         code, header, payload = self.emitted(

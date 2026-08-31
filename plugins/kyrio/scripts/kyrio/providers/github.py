@@ -120,6 +120,59 @@ def parse_log(text):
     return records
 
 
+#: A line comment has to name the commit it applies to, and that is not
+#: something the caller knows. It is fetched first, from the change itself.
+HEAD_FIELD = "headRefOid"
+
+
+def pr_head(run, identifier, cwd=None):
+    """The commit a comment on this change would attach to."""
+    return run([BINARY, "pr", "view", identifier,
+                "--json", HEAD_FIELD], cwd=cwd)
+
+
+def parse_head(text):
+    try:
+        data = json.loads(text or "{}")
+    except ValueError as exc:
+        raise ValueError("%s did not return the change as JSON: %s"
+                         % (BINARY, exc)) from exc
+    head = (data or {}).get(HEAD_FIELD) or ""
+    if not head:
+        raise ValueError("%s did not report which commit the change ends at"
+                         % BINARY)
+    return head
+
+
+def pr_comment(run, identifier, path, line, body_file, head, cwd=None):
+    """Post one comment against one line of one file.
+
+    The body travels as a file rather than as an argument: a review comment is
+    prose with newlines and quoting in it, and the platform's argument limit
+    and quoting rules are the wrong thing to be fighting while sending
+    something under the user's name.
+
+    ``{owner}/{repo}`` is left for the tool to fill in from the repository it
+    is run in, for the same reason the diff verb does not name one (I2).
+    """
+    return run([BINARY, "api", "--method", "POST",
+                "repos/{owner}/{repo}/pulls/%s/comments" % identifier,
+                "-F", "body=@%s" % body_file,
+                "-f", "path=%s" % path,
+                "-F", "line=%d" % line,
+                "-f", "commit_id=%s" % head,
+                "-f", "side=RIGHT"], cwd=cwd)
+
+
+def parse_comment(text):
+    """Where the comment landed, if the answer says."""
+    try:
+        data = json.loads(text or "{}")
+    except ValueError:
+        return ""
+    return (data or {}).get("html_url", "") if isinstance(data, dict) else ""
+
+
 def pr_diff(run, identifier, cwd=None):
     """The unified diff for one pull request.
 

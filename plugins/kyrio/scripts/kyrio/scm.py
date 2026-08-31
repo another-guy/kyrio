@@ -20,7 +20,7 @@ This module returns results; it never prints. ``__main__`` emits them (S1).
 
 import re
 
-from kyrio import capability, probe
+from kyrio import capability, ingest, probe
 from kyrio.cli import table
 from kyrio.repo import Result
 
@@ -141,6 +141,105 @@ def manual_log_instructions(since, label):
         "\n"
         "       kyrio ingest text --file <path>\n"
         % (since, label))
+
+
+class Comment:
+    """One comment, addressed to a place in a change."""
+
+    def __init__(self, identifier, path, line, body):
+        self.identifier = identifier
+        self.path = path
+        self.line = line
+        self.body = body
+
+    def rendered(self):
+        """What the user is shown before deciding whether to send it."""
+        return (
+            "  change   %s\n"
+            "  file     %s\n"
+            "  line     %d\n"
+            "\n"
+            "%s\n" % (self.identifier, self.path, self.line,
+                      self.body.rstrip("\n")))
+
+
+def read_comment(identifier, path, line, body_file):
+    """Assemble a comment, with the body read through the inbound door.
+
+    The body is a file the broker did not produce, which is exactly what
+    ``ingest`` exists for (S3): bounded, decoded, and put into one line-ending
+    form before it can go anywhere. That the bound applies on the way *out* is
+    the point -- an enormous or unreadable file is worth refusing hardest when
+    something is about to be published under the user's name.
+    """
+    try:
+        line = int(line)
+    except (TypeError, ValueError):
+        raise ScmError("--line takes a line number, got %r" % (line,)) from None
+    if line < 1:
+        raise ScmError("--line takes a line number, got %r" % (line,))
+    if not path:
+        raise ScmError("--file names the file the comment is about")
+
+    try:
+        read = ingest.ingest("text", body_file)
+    except ingest.IngestError as exc:
+        raise ScmError(str(exc)) from exc
+    if not read.payload.strip():
+        raise ScmError("%s is empty; there is nothing to say" % body_file)
+    return Comment(identifier, path, line, read.payload)
+
+
+def pr_comment(resolution, comment, body_file, post=False, cwd=None,
+               runner=None):
+    """Draft a comment, or send one.
+
+    Drafting is the default and sending is the second, deliberate call. This
+    is the one verb in the pack that other people can see the result of.
+    """
+    adapter = resolution.adapter
+    runner = probe.run if runner is None else runner
+
+    try:
+        pinned = adapter.pr_identifier(comment.identifier)
+    except ValueError as exc:
+        raise ScmError(str(exc)) from exc
+
+    if not post:
+        return Result("comment", comment.rendered(), provider=adapter.ID,
+                      id=pinned, path=comment.path, line=comment.line,
+                      posted=False)
+
+    # A line comment has to name the commit it applies to, which the caller
+    # does not know. Fetched first, and a failure here stops the send.
+    ran = _answered(adapter, adapter.pr_head(runner, pinned, cwd=cwd))
+    try:
+        head = adapter.parse_head(ran.output)
+    except ValueError as exc:
+        raise ScmError(str(exc), detail=ran.output.strip() or None) from exc
+
+    sent = _answered(adapter, adapter.pr_comment(
+        runner, pinned, comment.path, comment.line, body_file, head, cwd=cwd))
+    where = adapter.parse_comment(sent.output)
+    payload = comment.rendered()
+    if where:
+        payload += "\nposted: %s\n" % where
+    return Result("comment", payload, provider=adapter.ID, id=pinned,
+                  path=comment.path, line=comment.line, posted=True)
+
+
+def manual_comment_instructions(comment):
+    """What to do where a person is the transport."""
+    return (
+        "No automated transport for changes on this machine.\n"
+        "\n"
+        "  1. Open change %s wherever this team reviews code.\n"
+        "  2. Add this comment against %s, line %d, exactly as written:\n"
+        "\n"
+        "%s\n"
+        "Nothing was sent. Posting it is the user's to do.\n"
+        % (comment.identifier, comment.path, comment.line,
+           comment.body.rstrip("\n")))
 
 
 def pr_diff(resolution, identifier, cwd=None, runner=None):

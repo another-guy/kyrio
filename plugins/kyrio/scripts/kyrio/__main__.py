@@ -42,6 +42,8 @@ kyrio probe permission [--apply]
                            the one permission rule the broker needs
 kyrio scm pr diff <id>     the diff for one change under review
 kyrio scm log [--since 7d] what merged, and when
+kyrio scm pr comment <id> --file <p> --line <n> -f <body> [--post]
+                           drafts by default; --post sends it
 kyrio caps                 what this machine can reach, and what is missing
 kyrio config explain       effective configuration, and the layer behind each value
 kyrio ingest <kind> --file <path>
@@ -348,12 +350,17 @@ def scm_command(args):
 
 def _scm_pr(args, rest):
     verb = rest[0] if rest else None
-    if verb != "diff":
-        return emit.error("usage: kyrio scm pr diff <id>", known=["diff"])
+    handler = PR_VERBS.get(verb)
+    if handler is None:
+        return emit.error("usage: kyrio scm pr [diff|comment] <id>",
+                          known=sorted(PR_VERBS))
+    return handler(args, rest[1:])
 
+
+def _scm_pr_diff(args, rest):
     parser = cli.Parser(prog="kyrio scm pr diff")
     parser.add_argument("id", nargs="?")
-    flags = parser.parse_args(rest[1:])
+    flags = parser.parse_args(rest)
     if not flags.id:
         return emit.error("usage: kyrio scm pr diff <id>")
 
@@ -364,6 +371,35 @@ def _scm_pr(args, rest):
         return emit.manual("scm", scm.manual_diff_instructions(flags.id))
 
     result = scm.pr_diff(resolution, flags.id, cwd=_cwd(args))
+    return emit.ok(result.kind, result.payload,
+                   transport=resolution.transport, **result.meta)
+
+
+def _scm_pr_comment(args, rest):
+    """Draft by default. ``--post`` is the only thing that sends (I6)."""
+    parser = cli.Parser(prog="kyrio scm pr comment")
+    parser.add_argument("id", nargs="?")
+    parser.add_argument("--file")
+    parser.add_argument("--line")
+    parser.add_argument("-f", dest="body")
+    parser.add_argument("--post", action="store_true")
+    flags = parser.parse_args(rest)
+    if not flags.id or not flags.body:
+        return emit.error(
+            "usage: kyrio scm pr comment <id> --file <path> --line <n> "
+            "-f <body-file> [--post]")
+
+    comment = scm.read_comment(flags.id, flags.file, flags.line, flags.body)
+
+    resolution = _capability(args, "scm")
+    if scm.requires_manual(resolution):
+        return emit.manual("scm", scm.manual_comment_instructions(comment))
+
+    result = scm.pr_comment(resolution, comment, flags.body,
+                            post=flags.post, cwd=_cwd(args))
+    if not result.meta.get("posted"):
+        return emit.draft(result.kind, result.payload,
+                          transport=resolution.transport, **result.meta)
     return emit.ok(result.kind, result.payload,
                    transport=resolution.transport, **result.meta)
 
@@ -418,6 +454,12 @@ def _scm_log(args, rest):
 #: Short on purpose. "What shipped" is nearly always a question about the last
 #: few days; ``repo churn`` answers the long-range version of it.
 DEFAULT_LOG_WINDOW = "7d"
+
+
+PR_VERBS = {
+    "diff": _scm_pr_diff,
+    "comment": _scm_pr_comment,
+}
 
 
 SCM_VERBS = {
