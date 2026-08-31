@@ -750,12 +750,27 @@ one of which is invisible on the machine the code was written on. A final step
 runs the launcher through its shim rather than as a module, because the shim is
 where the executable bit and the shebang matter.
 
-Nothing is installed. The pack depends on the standard library alone, so a
-workflow that quietly pulled in a runner or a linter would be testing something
-other than what ships.
+The test job installs nothing. The pack depends on the standard library alone,
+so a workflow that quietly pulled in a runner or a linter would be testing
+something other than what ships.
+
+A second job validates both manifests with `claude plugin validate --strict`,
+and it is this file's one exception to that rule: it installs the plugin CLI,
+because manifest validity is judged by that CLI and by nothing in this
+repository. A hand-written stand-in would freeze today's schema and quietly
+stop matching the one that actually judges an install, which is the opposite of
+a check. It is a separate job so the exception cannot spread into the matrix,
+and the CLI is deliberately unpinned, since tracking the current schema is the
+whole point. `claude plugin tag` runs the same validation before it will write
+a tag; CI runs it on every push, which is several days earlier.
+
+A malformed manifest is the one defect nothing else here can see. It does not
+fail in this repository — it fails at install time, on another machine, the next
+time that machine updates.
 
 The floor version and the two commands appear in the hook, the workflow, and
-the README, and a test asserts the three agree. Drift between them is quiet and
+the README; the validation command appears in the workflow and the README. A
+test asserts they agree. Drift between them is quiet and
 expensive: a check that stops running still reports green.
 
 ---

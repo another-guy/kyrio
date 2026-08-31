@@ -6,9 +6,12 @@
 # and console encodings -- every one of which is invisible on the machine it was
 # written on. Running the suite on one platform proves only that it works there.
 #
-# Nothing here installs a package. The pack depends on the standard library
+# The test job installs nothing. The pack depends on the standard library
 # alone, so a workflow that quietly pulled a runner or a linter in would be
 # testing something other than what ships.
+#
+# The manifests job is this file's one exception, and it is a separate job so
+# that the exception cannot spread into the matrix.
 
 name: check
 
@@ -68,3 +71,31 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: plugins\kyrio\bin\kyrio.cmd caps
+
+  # A malformed manifest is the one defect nothing above can see. It does not
+  # fail here -- it fails at install time, on another machine, the next time
+  # that machine updates, which is the most expensive place in this design for
+  # anything to fail.
+  manifests:
+    name: manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Manifest validity is judged by this CLI and by nothing in this
+      # repository, so a hand-written stand-in would freeze today's schema and
+      # quietly stop matching the one that actually judges an install.
+      # Unpinned for the same reason: tracking the current schema is the point.
+      - name: Install the plugin CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Which validator
+        run: claude --version
+
+      # Validation reads local files; the manifests are the whole input.
+      - name: The marketplace validates
+        run: claude plugin validate . --strict
+
+      - name: The plugin validates
+        run: claude plugin validate plugins/kyrio --strict

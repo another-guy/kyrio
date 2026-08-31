@@ -50,3 +50,14 @@ python -m unittest discover -s tests -t tests
 
 Both run on Linux, Windows, and macOS in CI. The pack depends on the standard
 library alone, so there is nothing to install first.
+
+The manifests are judged by the plugin CLI rather than by anything in this
+repository, so they are checked with the tool that judges them:
+
+```
+claude plugin validate . --strict
+claude plugin validate plugins/kyrio --strict
+```
+
+CI runs both on every push, and `claude plugin tag` runs the same validation
+before it will write a tag.

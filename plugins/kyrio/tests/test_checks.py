@@ -25,9 +25,11 @@ REPO = PLUGIN.parent.parent
 HOOK = REPO / ".githooks" / "pre-commit"
 WORKFLOW = REPO / ".github" / "workflows" / "check.yml"
 README = PLUGIN / "README.md"
+ROOT_README = REPO / "README.md"
 
 LINT = "check_portability.py"
 SUITE = "python -m unittest discover -s tests -t tests"
+VALIDATE = "claude plugin validate"
 
 
 def text(path):
@@ -78,10 +80,27 @@ class TestWorkflow(unittest.TestCase):
     def test_the_floor_matches_the_broker(self):
         self.assertIn('"%d.%d"' % probe.MINIMUM_PYTHON[:2], self.body)
 
-    def test_nothing_is_installed(self):
+    def test_no_python_package_is_installed(self):
         """The pack depends on the standard library alone. A workflow that
-        pulled a package in would be testing something other than what ships."""
+        pulled a package in would be testing something other than what ships.
+
+        The manifests job installs the plugin CLI, which is a separate job for
+        exactly this reason: the exception is not allowed near the suite.
+        """
         self.assertNotIn("pip install", self.body)
+
+    def test_the_manifests_are_validated_by_the_tool_that_judges_them(self):
+        """The one defect nothing else here can see.
+
+        A malformed manifest does not fail in this repository. It fails at
+        install time, on another machine, the next time that machine updates.
+        Validity is decided by the plugin CLI, so a stand-in written here would
+        freeze today's schema and stop matching the judge without saying so.
+        """
+        self.assertIn(VALIDATE, self.body)
+        self.assertIn("--strict", self.body)
+        self.assertIn(VALIDATE, text(ROOT_README),
+                      "a contributor must be able to run what CI runs")
 
     def test_one_platform_failing_does_not_hide_another(self):
         self.assertIn("fail-fast: false", self.body)
