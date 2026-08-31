@@ -841,7 +841,12 @@ their own diff is genuinely disruptive; and a generated file appearing in a
 repository whose maintainers never opted into any of this is a conversation, not
 a commit.
 
-`output_root` is a cascade key, so a workspace or product layer can redirect it.
+`output_root` is a cascade key, so a workspace or product layer can redirect
+it, and `kyrio probe record --output-root <path>` writes it into the machine
+layer. It has no default and is not invented: every path this pack could pick
+on its own is either inside somebody's repository or somewhere they never
+chose. A skill that needs to write and finds it unset says so and stops, which
+is a better failure than a file appearing where nobody asked for one.
 
 ---
 
@@ -924,7 +929,16 @@ time that machine updates.
 
 The floor version and the two commands appear in the hook, the workflow, and
 the README; the validation command appears in the workflow and the README. A
-test asserts they agree. Drift between them is quiet and
+test asserts they agree.
+
+Both lint rules are written to fire on what they mean and nothing adjacent. A
+private-hostname match requires its suffix in lower case, because
+`capability.LOCAL` is a module constant and reads as a `.local` address only to
+a regular expression. A fenced block counts as commands when it is unlabelled
+or names a shell, and not when it is labelled `text`, which by convention holds
+output. Both narrowings give up a little reach for the thing that matters more:
+a lint that cries wolf is read past, and a lint that is read past has stopped
+working. Drift between them is quiet and
 expensive: a check that stops running still reports green.
 
 ---
