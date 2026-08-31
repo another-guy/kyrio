@@ -51,6 +51,11 @@ PROBE_TIMEOUT = 20
 #: How a probe ended. Kept apart because they have different fixes: nothing to
 #: run means install something, and ran-and-refused usually means log in.
 MISSING = "missing"
+#: Distinct from ``MISSING`` on purpose. Both causes raise ENOENT on POSIX --
+#: a binary that is not on PATH, and a working directory that does not exist
+#: -- and collapsing them reports a perfectly good tool as uninstalled, which
+#: sends the reader after a problem they do not have.
+NO_CWD = "no directory"
 FAILED = "failed"
 ANSWERED = "answered"
 TIMED_OUT = "timed out"
@@ -212,12 +217,23 @@ def run(argv, timeout=PROBE_TIMEOUT, cwd=None):
     it is talking about from the directory it was started in gives a different
     answer, or none, from somewhere else.
     """
+    if cwd is not None and not pathlib.Path(cwd).is_dir():
+        # Checked here rather than left to the child, because the two ways
+        # this call can fail with ENOENT are indistinguishable afterwards on
+        # some platforms, and this one is knowable before anything runs.
+        return Ran(NO_CWD, argv, detail="no such directory: %s" % cwd)
+
     try:
         result = subprocess.run(
             list(argv), capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout,
             cwd=str(cwd) if cwd else None)
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
+        # The directory can go away between the check above and the exec.
+        # CPython names the cwd as the filename when the child's chdir is what
+        # failed, which is the only thing separating the two causes here.
+        if cwd is not None and exc.filename and str(exc.filename) == str(cwd):
+            return Ran(NO_CWD, argv, detail="no such directory: %s" % cwd)
         return Ran(MISSING, argv, detail="not found")
     except subprocess.TimeoutExpired:
         return Ran(TIMED_OUT, argv, detail="no answer within %ds" % timeout)

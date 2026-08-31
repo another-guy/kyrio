@@ -654,6 +654,15 @@ useful. Every probe runs the binary and checks that it answers, and separately
 checks authentication state, because *installed* and *logged in* are different
 failures with different fixes.
 
+An outcome must also name the right subject. A tool that cannot start and a
+working directory that does not exist are one `ENOENT` to the operating
+system, and reporting both as *missing* tells somebody their installed tool is
+not installed -- so they go looking for an installation problem they do not
+have. `--cwd` is therefore checked before anything is launched, and a
+directory that disappears afterwards is told apart by the filename the
+interpreter attributes the failure to. The general rule: a probe reports what
+failed, and where a failure has two causes, the report says which.
+
 Connected-server discovery prefers `claude mcp list`, because only that
 distinguishes connected from needs-auth from failed, and that distinction is the
 entire reason to re-run setup. Parsing configuration files is the fallback.

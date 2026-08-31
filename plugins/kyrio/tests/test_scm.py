@@ -141,6 +141,19 @@ class TestPrDiff(unittest.TestCase):
             scm.pr_diff(resolution(), "4821", runner=run)
         self.assertIn("not installed", caught.exception.message)
 
+    def test_a_directory_that_does_not_exist_does_not_blame_the_tool(self):
+        """Reported as a missing binary, this says an installed tool is not
+        installed, and the reader goes looking for an installation problem
+        they do not have."""
+        run = answering("", outcome=probe.NO_CWD,
+                        detail="no such directory: /nowhere")
+        with self.assertRaises(scm.ScmError) as caught:
+            scm.pr_diff(resolution(), "4821", runner=run)
+        message = caught.exception.message
+        self.assertIn("/nowhere", message)
+        self.assertNotIn("not installed", message)
+        self.assertNotIn(github.BINARY, message)
+
     def test_a_tool_that_refuses_keeps_its_own_words(self):
         """A change that does not exist and a credential that expired are both
         a non-zero exit. Only the message separates them, so it is carried

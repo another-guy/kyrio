@@ -87,6 +87,10 @@ def _answered(adapter, ran):
     Shared by every verb: they fail the same ways for the same reasons, and
     two copies of this drift into two different messages for one problem.
     """
+    if ran.outcome == probe.NO_CWD:
+        # Named before the tool is, because it is not the tool's fault and a
+        # message about the tool would be read as one.
+        raise ScmError(ran.detail)
     if ran.outcome == probe.MISSING:
         raise ScmError("%s is configured for this machine but is not installed"
                        % adapter.BINARY)

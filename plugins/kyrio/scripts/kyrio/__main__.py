@@ -81,7 +81,7 @@ def main(argv=None):
 
 
 def _resolve(args):
-    start = pathlib.Path(args.cwd).resolve() if args.cwd else None
+    start = _cwd(args) if args.cwd else None
     return config.resolve(start=start)
 
 
@@ -204,7 +204,28 @@ def repo_command(args):
 
 
 def _cwd(args):
-    return pathlib.Path(args.cwd).resolve() if args.cwd else pathlib.Path.cwd()
+    """The directory every command answers about.
+
+    A ``--cwd`` that is not a directory is a caller mistake, and it is worth
+    naming as one here rather than letting each command discover it later:
+    what a tool started in a directory that does not exist reports is a
+    failure of that tool, and reads like one.
+
+    ``expanduser`` because a shell that did not expand a leading ``~`` -- a
+    quoted path, or one this pack was handed rather than typed -- leaves a
+    directory name that cannot exist, and the difference is not one the
+    caller meant.
+    """
+    if not args.cwd:
+        return pathlib.Path.cwd()
+    path = pathlib.Path(args.cwd).expanduser()
+    try:
+        path = path.resolve()
+    except OSError:
+        pass
+    if not path.is_dir():
+        raise cli.UsageError("--cwd is not a directory: %s" % args.cwd)
+    return path
 
 
 def _repo_map(args, rest):

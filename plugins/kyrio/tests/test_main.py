@@ -126,6 +126,40 @@ class TestDispatch(Run):
         self.assertIn("not valid JSON", header["message"])
 
 
+class TestWorkingDirectory(Run):
+    """``--cwd`` decides which repository every answer is about, so a value
+    that names no directory has to be refused rather than passed on."""
+
+    def test_a_directory_that_does_not_exist_is_refused(self):
+        code, header, payload = self.run_kyrio(
+            "--cwd", str(self.root / "absent"), "caps")
+        self.assertEqual(code, 1)
+        self.assertEqual(header["status"], "error")
+        self.assertIn("--cwd", header["message"])
+
+    def test_it_is_refused_before_anything_is_launched(self):
+        """Named as the caller's mistake, not discovered later as a tool
+        that would not start."""
+        _, header, _ = self.run_kyrio(
+            "--cwd", str(self.root / "absent"), "scm", "pr", "diff", "1")
+        self.assertEqual(header["status"], "error")
+        self.assertIn("--cwd", header["message"])
+
+    def test_a_file_is_not_a_directory(self):
+        path = self.root / "notadir.txt"
+        path.write_text("", encoding="utf-8")
+        code, header, _ = self.run_kyrio("--cwd", str(path), "caps")
+        self.assertEqual(code, 1)
+        self.assertIn("--cwd", header["message"])
+
+    def test_a_leading_tilde_a_shell_did_not_expand(self):
+        """A quoted path, or one handed to this pack rather than typed, keeps
+        its ``~``. Left alone it names a directory that cannot exist, and the
+        difference was never one the caller meant."""
+        code, header, _ = self.run_kyrio("--cwd", "~", "caps")
+        self.assertEqual(code, 0, header.get("message"))
+
+
 class TestCaps(Run):
     def test_repo_is_ready_on_a_machine_with_no_configuration(self):
         code, header, payload = self.run_kyrio("--cwd", str(self.root), "caps")

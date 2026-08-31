@@ -171,6 +171,21 @@ class TestRun(unittest.TestCase):
         self.assertEqual(ran.outcome, probe.MISSING)
         self.assertFalse(ran.answered)
 
+    def test_a_directory_that_does_not_exist_is_not_a_missing_program(self):
+        """The two are one ENOENT to the operating system and two different
+        problems to the person reading the answer. Reported as one, a working
+        tool is called uninstalled and the fix is looked for in the wrong
+        place."""
+        ran = probe.run([sys.executable, "-c", "print('here')"],
+                        cwd="/kyrio-no-such-directory-anywhere")
+        self.assertEqual(ran.outcome, probe.NO_CWD)
+        self.assertFalse(ran.answered)
+        self.assertIn("kyrio-no-such-directory-anywhere", ran.detail)
+
+    def test_a_missing_program_stays_missing_when_the_directory_is_fine(self):
+        ran = probe.run(["kyrio-no-such-program-anywhere"], cwd=pathlib.Path.cwd())
+        self.assertEqual(ran.outcome, probe.MISSING)
+
     def test_a_program_that_runs_and_refuses(self):
         """Installed and logged in are different failures with different
         fixes, and this is the shape the second one arrives in."""
