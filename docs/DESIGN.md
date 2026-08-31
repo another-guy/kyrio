@@ -523,6 +523,43 @@ The repository is private, so each machine needs credentials to reach it.
 plainly if it cannot, so that a failed update months later has a diagnosis
 rather than a symptom.
 
+### Versioning
+
+The version number is a label, not a mechanism. Installation and updates key on
+the **commit sha**: a machine that updates moves to whatever the default branch
+points at, and the version it had is never consulted. The install path is named
+after a version but is overwritten in place, so two different states of the pack
+can live at the same path and routinely do. Pushing changes what machines
+receive. Bumping does not.
+
+What the number buys is the ability to talk about a state of the pack across
+machines that are not in the same conversation, and `claude plugin tag` turns it
+into `kyrio--v<version>` — an immutable point to install from, compare against,
+or roll back to. That is worth having, and it is the whole of what a version is
+worth here.
+
+Two files carry a version and they are not the same version.
+`plugins/kyrio/.claude-plugin/plugin.json` declares the plugin's.
+`.claude-plugin/marketplace.json` declares `metadata.version`, which is the
+catalog's. They move together only because this catalog ships one plugin; the
+day it ships two they have to diverge. Nothing asserts they match, and nothing
+should — `claude plugin tag` already validates the pairing that matters, which
+is the tag against the manifest.
+
+The number changes once per phase, not once per commit, because a version that
+moves on every commit says only what the sha already said. A minor bump means a
+phase landed. A patch bump means something that shipped was wrong.
+
+Below `1.0.0` the pack is stating that its central claim is untested. `1.0.0` is
+claimed at P3 — the first port to a machine with different tooling — because
+that is the point at which I1 stops being an intention. It is not claimed when
+the catalog looks full: a complete set of skills that all quietly name one
+provider is further from 1.0 than three skills that name none.
+
+`claude plugin tag` refuses a dirty tree. That is correct and not worth working
+around — a tag naming a version must point at a commit that contains it. Commit,
+then `--dry-run`, then tag.
+
 ### What setup does
 
 Probing is **by execution, never by presence**. A name resolving on `PATH`
@@ -741,6 +778,31 @@ not pulling its weight.
 
 **P3 is not optional and not reorderable.** It is the only step that tests I1
 against reality rather than against intent.
+
+### Version plan
+
+Which phase lands as which release. The policy in section 7 says what a version
+*means*; this says which one each phase gets.
+
+| Phase | Version | What the number claims |
+|---|---|---|
+| P0 | `0.1.0` | The broker runs, and the seams exist to be filled |
+| P1 | `0.2.0` | Skills are authorable against the broker, on more than one platform |
+| P2 | `0.3.0` | One transport works end to end, including a write back out |
+| P3 | `1.0.0` | I1 holds against a second machine's tooling, not against intent |
+| P4 | `1.1.0` | Several capabilities compose inside one workflow |
+| P5 | `1.2.0` | Deterministic query construction under incident pressure |
+| P6 | `1.3.0` | Generation from history rather than from paraphrase |
+| P7 | `1.4.0`+ | One minor per skill, on demand |
+
+P0 and P1 are history; the rest is a forecast. This section says to stop where a
+phase stops pulling its weight, and a phase abandoned takes its number out of
+use with it. The numbers are a map, not a commitment.
+
+The gap worth noticing is P2 to P3. P2 ships the first adapter and the first
+real transport, which is the moment I1 becomes falsifiable — and it is still
+`0.x`, because the machine that wrote the adapter is the worst possible place to
+find out whether the adapter leaked.
 
 ### When to write skill number *n*
 
