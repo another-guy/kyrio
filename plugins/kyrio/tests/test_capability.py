@@ -228,6 +228,103 @@ class TestRemediationText(unittest.TestCase):
             capability.resolve("obs", resolved(), registry=EMPTY).remediation)
 
 
+class TestParseSpec(unittest.TestCase):
+    """Where a proposal stops being text.
+
+    Everything the broker will write passes through here, so an entry that
+    could not resolve later cannot be recorded now. Without that, a config
+    file can pass validation and then report itself unusable forever.
+    """
+
+    def test_a_transport_that_needs_nothing(self):
+        for spec in ("manual", "unavailable"):
+            with self.subTest(spec=spec):
+                self.assertEqual(capability.parse_spec(spec),
+                                 {"transport": spec})
+
+    def test_a_provider_transport(self):
+        self.assertEqual(
+            capability.parse_spec("cli:provider-a"),
+            {"transport": "cli", "provider": "provider-a"})
+
+    def test_an_ordered_list_of_providers(self):
+        self.assertEqual(
+            capability.parse_spec("cli:provider-a,provider-b"),
+            {"transport": "cli", "provider": ["provider-a", "provider-b"]})
+
+    def test_a_server_transport_names_its_tool_prefix(self):
+        self.assertEqual(capability.parse_spec("server:toolns"),
+                         {"transport": "server", "tool_prefix": "toolns"})
+
+    def test_a_value_is_required_exactly_where_resolution_needs_one(self):
+        """Parsing and resolution cannot be allowed to disagree about this."""
+        for spec in ("cli", "browser", "server"):
+            with self.subTest(spec=spec):
+                with self.assertRaises(capability.SpecError):
+                    capability.parse_spec(spec)
+
+    def test_a_value_is_refused_where_there_is_nothing_to_configure(self):
+        for spec in ("manual:x", "unavailable:x"):
+            with self.subTest(spec=spec):
+                with self.assertRaises(capability.SpecError):
+                    capability.parse_spec(spec)
+
+    def test_an_unknown_transport_is_refused(self):
+        with self.assertRaises(capability.SpecError) as caught:
+            capability.parse_spec("carrier-pigeon")
+        self.assertIn("cli", str(caught.exception))
+
+    def test_local_is_not_offered_as_a_choice_and_then_refused(self):
+        with self.assertRaises(capability.SpecError) as caught:
+            capability.parse_spec("local")
+        self.assertIn("repo", str(caught.exception))
+        self.assertNotIn("local", ", ".join(capability.ASSIGNABLE_TRANSPORTS))
+
+    def test_everything_parsed_here_resolves_there(self):
+        """The two halves of the same rule, checked against each other."""
+        for spec in ("manual", "unavailable", "cli:provider-a",
+                     "server:toolns", "browser:provider-a"):
+            entry = capability.parse_spec(spec)
+            r = capability.resolve("scm", resolved(caps(scm=entry)),
+                                   registry=Registry(**{"provider-a": object()}))
+            with self.subTest(spec=spec):
+                self.assertIn(r.status,
+                              (capability.CONFIGURED, capability.UNAVAILABLE))
+                if spec != "unavailable":
+                    self.assertEqual(r.status, capability.CONFIGURED)
+
+
+class TestParseAssignment(unittest.TestCase):
+    def test_a_capability_and_a_spec(self):
+        name, entry = capability.parse_assignment("scm=cli:provider-a")
+        self.assertEqual(name, "scm")
+        self.assertEqual(entry["provider"], "provider-a")
+
+    def test_surrounding_space_is_not_a_failure(self):
+        name, entry = capability.parse_assignment("  scm = manual ")
+        self.assertEqual(name, "scm")
+        self.assertEqual(entry, {"transport": "manual"})
+
+    def test_text_that_is_not_an_assignment(self):
+        for text in ("nonsense", "=cli:x", ""):
+            with self.subTest(text=text):
+                with self.assertRaises(capability.SpecError):
+                    capability.parse_assignment(text)
+
+    def test_an_unknown_capability_names_the_known_ones(self):
+        with self.assertRaises(capability.SpecError) as caught:
+            capability.parse_assignment("nope=cli:provider-a")
+        for name in config.CAPABILITIES:
+            self.assertIn(name, str(caught.exception))
+
+    def test_an_intrinsic_capability_cannot_be_assigned(self):
+        """``repo`` reads the working tree. There is nothing to point it at."""
+        with self.assertRaises(capability.SpecError):
+            capability.parse_assignment("repo=local")
+        with self.assertRaises(capability.SpecError):
+            capability.parse_assignment("repo=cli:provider-a")
+
+
 class TestReportShape(unittest.TestCase):
     def test_every_capability_appears_in_declared_order(self):
         rows = capability.rows(resolved(), registry=EMPTY)

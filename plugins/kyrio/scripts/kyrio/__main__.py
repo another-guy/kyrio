@@ -35,6 +35,8 @@ kyrio repo blame <path>:<line>[-<line>]
 kyrio probe                what this machine has; writes nothing
 kyrio probe servers        connected servers, and the state of each
 kyrio probe record         record the interpreter for the launcher to reuse
+     [--set <capability>=<transport>[:<value>]]  ... repeatable
+     [--servers]           also cache what discovery last saw
 kyrio probe permission [--apply]
                            the one permission rule the broker needs
 kyrio caps                 what this machine can reach, and what is missing
@@ -116,6 +118,13 @@ def caps(args):
             for remediation, names in gaps.items())
         payload += ("\nStatus is what configuration says, not what was last "
                     "probed.\n")
+
+    probed = probe.last_probe()
+    if probed:
+        connected = [s for s in probed.get("servers") or []
+                     if s.get("state") == probe.CONNECTED]
+        payload += "\nLAST PROBED  %s, %d of %d server(s) connected\n" % (
+            probed["at"], len(connected), len(probed.get("servers") or []))
     return emit.ok("caps", payload, layers=len(resolved.layers), **counts)
 
 
@@ -262,7 +271,29 @@ def _probe_servers(args, rest):
 
 
 def _probe_record(args, rest):
-    return probe.record()
+    """Record the interpreter, and any capability the caller decided on.
+
+    Assignments arrive already decided. Which discovered server serves which
+    capability cannot be worked out from the listing -- it takes knowing what
+    the server is -- so the skill above proposes and this validates and
+    writes. Nothing is inferred here, and nothing invalid is stored: an entry
+    that could not resolve later is refused now.
+    """
+    parser = cli.Parser(prog="kyrio probe record")
+    parser.add_argument("--set", action="append", dest="assignments")
+    parser.add_argument("--servers", action="store_true")
+    flags = parser.parse_args(rest)
+
+    entries = {}
+    for assignment in flags.assignments or []:
+        try:
+            name, entry = capability.parse_assignment(assignment)
+        except capability.SpecError as exc:
+            raise probe.ProbeError(str(exc)) from exc
+        entries[name] = entry
+
+    discovery = probe.discover_servers() if flags.servers else None
+    return probe.record(capabilities=entries, discovery=discovery)
 
 
 def _probe_permission(args, rest):

@@ -14,7 +14,7 @@ disable-model-invocation: true
 
 # Setup
 
-Three steps. Show the user each result before moving to the next.
+Four steps. Show the user each result before moving to the next.
 
 ## 1. Report
 
@@ -23,7 +23,8 @@ kyrio probe
 ```
 
 Show the report as it came back. It lists the interpreter, every capability
-and its transport, and which files have been written.
+and its transport, the servers this machine can reach and the state of each,
+and which files have been written.
 
 If no interpreter was found, stop here. Give the user the message verbatim,
 say that nothing was written, and end. Do not attempt an install.
@@ -43,7 +44,44 @@ anything hand-edited survives. Safe to run repeatedly.
 If the report already shows the correct interpreter recorded, skip this and
 say so.
 
-## 3. Permission
+## 3. Capabilities
+
+The SERVERS section says which servers exist and which are connected. Which
+one serves which capability is a judgment: the listing proves a server is
+reachable, never what it is for.
+
+For each capability still unconfigured, decide whether a connected server
+serves it, using its name and address as the only evidence. Where nothing
+connected plausibly serves one, leave it alone. An unconfigured capability is
+a gap and says so on every report; a wrong mapping is worse than a gap,
+because every later call goes somewhere wrong and the report calls it fine.
+
+Show the proposal as one line per capability, each naming the server it came
+from and how confident you are. Mark guesses as guesses. Then ask, and change
+nothing until the user answers.
+
+Only on a clear yes:
+
+```sh
+kyrio probe record --set <capability>=server:<prefix> --servers
+```
+
+Repeat `--set` once per capability. `--servers` caches what was seen, so a
+later report can say when this machine was last checked.
+
+Where the user says a capability is deliberately not wanted here:
+
+```sh
+kyrio probe record --set <capability>=unavailable
+```
+
+That is a value rather than an absence. Layers merge, so leaving a key out
+never means off.
+
+Assignments are validated before anything is written, and a refusal names its
+reason. Do not work around one; show it and ask.
+
+## 4. Permission
 
 ```sh
 kyrio probe permission

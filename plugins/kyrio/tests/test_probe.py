@@ -339,6 +339,121 @@ class TestReportServers(Sandbox):
         self.assertFalse(self.settings.exists())
 
 
+class TestRecordCapabilities(Sandbox):
+    def record(self, capabilities=None, **kw):
+        return probe.record(machine_path=self.machine,
+                            interpreter_file=self.mirror,
+                            capabilities=capabilities, **kw)
+
+    def written(self):
+        return json.loads(self.machine.read_text(encoding="utf-8"))
+
+    def test_an_entry_reaches_the_file(self):
+        self.record({"scm": {"transport": "cli", "provider": "provider-a"}})
+        self.assertEqual(self.written()["capabilities"]["scm"],
+                         {"transport": "cli", "provider": "provider-a"})
+
+    def test_repo_is_always_there_without_being_asked_for(self):
+        self.record()
+        self.assertEqual(self.written()["capabilities"]["repo"],
+                         {"transport": "local"})
+
+    def test_writing_the_same_entry_twice_changes_nothing(self):
+        entry = {"scm": {"transport": "manual"}}
+        self.record(entry)
+        first = self.machine.read_text(encoding="utf-8")
+        result = self.record(entry)
+        self.assertEqual(self.machine.read_text(encoding="utf-8"), first)
+        self.assertIn("unchanged", result.payload)
+        self.assertEqual(result.meta["written"], 0)
+
+    def test_one_capability_is_upgraded_and_the_rest_left_alone(self):
+        """Re-running after a server is connected is the whole reason setup is
+        worth re-running, and it must not disturb anything else."""
+        self.record({"scm": {"transport": "manual"},
+                     "kb": {"transport": "unavailable"}})
+        self.record({"scm": {"transport": "server", "tool_prefix": "toolns"}})
+        capabilities = self.written()["capabilities"]
+        self.assertEqual(capabilities["scm"]["transport"], "server")
+        self.assertEqual(capabilities["kb"], {"transport": "unavailable"})
+
+    def test_a_hand_written_entry_is_not_discarded(self):
+        self.machine.parent.mkdir(parents=True, exist_ok=True)
+        self.machine.write_text(json.dumps({
+            "schema": 1,
+            "output_root": "~/notes",
+            "capabilities": {"obs": {"transport": "manual"}},
+        }), encoding="utf-8")
+        self.record({"scm": {"transport": "manual"}})
+        written = self.written()
+        self.assertEqual(written["output_root"], "~/notes")
+        self.assertEqual(written["capabilities"]["obs"],
+                         {"transport": "manual"})
+
+    def test_the_report_says_what_it_left_alone(self):
+        self.record({"kb": {"transport": "manual"}})
+        result = self.record({"scm": {"transport": "manual"}})
+        self.assertIn("LEFT ALONE", result.payload)
+        self.assertIn("kb", result.payload.partition("LEFT ALONE")[2])
+
+    def test_what_was_written_is_shown_as_it_would_be_typed(self):
+        result = self.record({
+            "obs": {"transport": "cli",
+                    "provider": ["provider-a", "provider-b"]}})
+        self.assertIn("cli:provider-a,provider-b", result.payload)
+
+
+class TestServerCache(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.servers_file = self.root / "state" / "servers.json"
+
+    def frozen(self):
+        return lambda: "2026-01-01T00:00:00Z"
+
+    def test_what_was_seen_is_kept_with_when(self):
+        discovery = probe.discover_servers(runner=answering(LISTING))
+        probe.cache_servers(discovery, servers_file=self.servers_file,
+                            clock=self.frozen())
+        cached = probe.last_probe(servers_file=self.servers_file)
+        self.assertEqual(cached["at"], "2026-01-01T00:00:00Z")
+        self.assertEqual(len(cached["servers"]), 6)
+
+    def test_a_machine_never_probed_is_not_an_error(self):
+        """The ordinary state of a fresh clone, not a fault."""
+        self.assertIsNone(probe.last_probe(servers_file=self.servers_file))
+
+    def test_an_unreadable_cache_is_treated_as_absent(self):
+        self.servers_file.parent.mkdir(parents=True, exist_ok=True)
+        self.servers_file.write_text("{oops", encoding="utf-8")
+        self.assertIsNone(probe.last_probe(servers_file=self.servers_file))
+
+    def test_recording_caches_only_when_discovery_ran(self):
+        probe.record(machine_path=self.machine, interpreter_file=self.mirror,
+                     servers_file=self.servers_file)
+        self.assertFalse(self.servers_file.exists())
+
+    def test_recording_with_discovery_caches_it(self):
+        result = probe.record(
+            machine_path=self.machine, interpreter_file=self.mirror,
+            discovery=probe.discover_servers(runner=answering(LISTING)),
+            servers_file=self.servers_file, clock=self.frozen())
+        self.assertTrue(self.servers_file.exists())
+        self.assertIn("6 server(s) last seen", result.payload)
+
+    def test_the_clock_is_the_only_thing_that_moves(self):
+        """Two recordings of the same listing differ only by the moment."""
+        discovery = probe.discover_servers(runner=answering(LISTING))
+        probe.cache_servers(discovery, servers_file=self.servers_file,
+                            clock=self.frozen())
+        first = probe.last_probe(servers_file=self.servers_file)
+        probe.cache_servers(discovery, servers_file=self.servers_file,
+                            clock=lambda: "2026-06-01T00:00:00Z")
+        second = probe.last_probe(servers_file=self.servers_file)
+        self.assertEqual(first["servers"], second["servers"])
+        self.assertNotEqual(first["at"], second["at"])
+
+
 class TestPermission(Sandbox):
     def test_absent_is_reported_with_the_exact_rule(self):
         result = probe.permission(settings_path=self.settings)

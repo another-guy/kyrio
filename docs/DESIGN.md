@@ -647,6 +647,21 @@ the recorded path, then the names on `PATH`. That order exists because the
 bootstrap case is a machine with no configuration at all: the shim has to work
 before setup has ever run, and prefer setup's answer once it has.
 
+Capability entries are written by `kyrio probe record --set
+<capability>=<transport>[:<value>]`, repeatable, and validated before anything
+reaches disk: an entry that could not resolve later is refused now, because a
+config file that passes validation and then reports itself permanently unusable
+is worse than one that was never written. The write is additive and per key, so
+re-running after a server is connected upgrades that one capability and leaves
+every other entry — including hand-authored ones — exactly as it was.
+
+The assignments arrive already decided. Mapping a discovered server to a
+capability takes knowing what the server *is*, which is precisely the knowledge
+the broker is forbidden to hold (I1), so the skill proposes and the user
+confirms, and the broker validates and writes. Determinism is preserved where
+it matters: nothing is inferred at the point of writing, and the same
+assignments produce the same file.
+
 Setup **never installs software and never runs an authentication flow.** It
 prints the exact command and stops. Installing software on a managed machine is
 a decision with an owner, and a script cannot know what is permitted.
@@ -654,6 +669,10 @@ a decision with an owner, and a script cannot know what is permitted.
 Setup is idempotent. Re-running it after a server is connected upgrades that
 capability's transport and leaves everything else untouched. That is the whole
 re-runnability story.
+
+What discovery saw is cached to `state/servers.json` with the moment it saw it,
+which is what lets `caps` finish the sentence it would otherwise leave open:
+status is what configuration says, and this is when anybody last checked.
 
 ### The permission model
 

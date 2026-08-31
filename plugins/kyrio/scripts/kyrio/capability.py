@@ -51,6 +51,11 @@ UNAVAILABLE_TRANSPORT = "unavailable"
 
 KNOWN_TRANSPORTS = frozenset(TRANSPORT_ORDER) | {LOCAL, UNAVAILABLE_TRANSPORT}
 
+#: What a person may assign. ``local`` is missing on purpose: it belongs to a
+#: capability that needs no configuration, so offering it in a list of choices
+#: and then refusing it would be the list's fault, not the caller's.
+ASSIGNABLE_TRANSPORTS = KNOWN_TRANSPORTS - {LOCAL}
+
 #: Transports served by an adapter under ``providers/``. The other two are
 #: served by the caller: a server transport returns a tool call for Claude Code
 #: to make, and manual returns instructions for a person.
@@ -67,6 +72,75 @@ UNAVAILABLE = "unavailable"
 STATUSES = (READY, CONFIGURED, UNCONFIGURED, UNAVAILABLE)
 
 SETUP_HINT = "run /kyrio:setup to probe this machine and record the result"
+
+
+class SpecError(Exception):
+    """A capability assignment the broker will not write.
+
+    Raised, never printed: the caller turns it into an ``error`` response.
+    """
+
+
+def parse_assignment(text):
+    """``<capability>=<spec>`` into a name and an entry, or refuse.
+
+    Setup proposes; this is where a proposal stops being text. Everything the
+    broker will write goes through here, so an entry that cannot be resolved
+    later cannot be recorded now -- the alternative is a config file that
+    passes validation and then reports itself unusable forever.
+    """
+    name, separator, spec = text.partition("=")
+    name = name.strip()
+    if not separator or not name:
+        raise SpecError(
+            "expected <capability>=<transport>[:<value>], got %r" % text)
+    if name in config.INTRINSIC:
+        raise SpecError(
+            "%s needs no configuration; it reads the working tree" % name)
+    if name not in config.CAPABILITIES:
+        raise SpecError("unknown capability %r; known are %s"
+                        % (name, ", ".join(config.CAPABILITIES)))
+    return name, parse_spec(spec.strip())
+
+
+def parse_spec(spec):
+    """``<transport>[:<value>]`` into a capability entry.
+
+    A value is required exactly where resolution needs one, so the two cannot
+    disagree: ``cli`` and ``browser`` name a provider, ``server`` names a tool
+    prefix, and ``manual`` and ``unavailable`` take nothing because there is
+    nothing about them to configure.
+    """
+    transport, separator, value = spec.partition(":")
+    transport = transport.strip()
+    value = value.strip()
+
+    if transport == LOCAL:
+        raise SpecError("the local transport belongs only to %s"
+                        % ", ".join(sorted(config.INTRINSIC)))
+    if transport not in ASSIGNABLE_TRANSPORTS:
+        raise SpecError("unknown transport %r; known are %s"
+                        % (transport, ", ".join(sorted(ASSIGNABLE_TRANSPORTS))))
+
+    if transport in (MANUAL, UNAVAILABLE_TRANSPORT):
+        if separator:
+            raise SpecError("%s takes no value, got %r" % (transport, value))
+        return {"transport": transport}
+
+    if not value:
+        needed = "tool prefix" if transport == SERVER else "provider"
+        raise SpecError("%s needs a %s: %s:<%s>"
+                        % (transport, needed, transport,
+                           needed.replace(" ", "-")))
+
+    if transport == SERVER:
+        return {"transport": SERVER, "tool_prefix": value}
+
+    # A comma-separated list is the ordered fallthrough: try the first,
+    # fall through to the next.
+    names = [part.strip() for part in value.split(",") if part.strip()]
+    return {"transport": transport,
+            "provider": names[0] if len(names) == 1 else names}
 
 
 class Resolution:

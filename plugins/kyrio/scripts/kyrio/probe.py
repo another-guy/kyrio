@@ -16,6 +16,7 @@ keys it owns, and leaves the rest untouched.
 This module returns results; it never prints. ``__main__`` emits them (S1).
 """
 
+import datetime
 import json
 import pathlib
 import subprocess
@@ -80,6 +81,11 @@ SERVER_STATES = (
 #: Where the machine layer and its shell-readable mirror live.
 STATE_DIR = pathlib.Path.home() / ".claude" / "kyrio" / "state"
 INTERPRETER_FILE = STATE_DIR / "interpreter"
+
+#: What discovery last saw. Cached because discovery health-checks every
+#: server over the network, and because "status is what configuration says"
+#: is only half an answer without the date somebody last checked.
+SERVERS_FILE = STATE_DIR / "servers.json"
 SETTINGS_FILE = pathlib.Path.home() / ".claude" / "settings.json"
 
 #: One rule, forever. It names the bare command because the plugin's ``bin/``
@@ -386,7 +392,38 @@ def _recorded_interpreter(machine_path):
 # --------------------------------------------------------------- record
 
 
-def record(machine_path=None, interpreter_file=None):
+def now():
+    """The clock, in one place, so a test can hold it still."""
+    return datetime.datetime.now(datetime.UTC).replace(
+        microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def cache_servers(discovery, servers_file=None, clock=None):
+    """Write what discovery saw, with the moment it saw it."""
+    servers_file = pathlib.Path(servers_file or SERVERS_FILE)
+    clock = now if clock is None else clock
+    _write_json(servers_file, {
+        "at": clock(),
+        "servers": [{"name": s.name, "state": s.state, "address": s.address}
+                    for s in discovery.servers],
+    })
+    return servers_file
+
+
+def last_probe(servers_file=None):
+    """What discovery last saw, or ``None`` if it has never run here.
+
+    Never an error: a machine that has not been probed is the ordinary state
+    of a fresh clone, not a fault.
+    """
+    data = _read_json(pathlib.Path(servers_file or SERVERS_FILE))
+    if not isinstance(data, dict) or "at" not in data:
+        return None
+    return data
+
+
+def record(machine_path=None, interpreter_file=None, capabilities=None,
+           discovery=None, servers_file=None, clock=None):
     """Write the machine layer and its shell-readable mirror.
 
     The interpreter is recorded twice on purpose: ``config.json`` holds it as
@@ -403,9 +440,19 @@ def record(machine_path=None, interpreter_file=None):
     merged = dict(existing)
     merged["schema"] = config.SCHEMA_VERSION
     merged["interpreter"] = chosen.executable
-    capabilities = dict(merged.get("capabilities") or {})
-    capabilities.setdefault("repo", {"transport": "local"})
-    merged["capabilities"] = capabilities
+
+    # Additive and per key. Re-running after a server is connected upgrades
+    # that capability and leaves every other one exactly as it was, including
+    # entries a person wrote by hand.
+    before = dict(merged.get("capabilities") or {})
+    entries = dict(before)
+    entries.setdefault("repo", {"transport": "local"})
+    changes = []
+    for name, entry in (capabilities or {}).items():
+        changes.append((name, entry, "unchanged" if before.get(name) == entry
+                        else "written"))
+        entries[name] = entry
+    merged["capabilities"] = entries
 
     _write_json(machine_path, merged)
     try:
@@ -414,21 +461,55 @@ def record(machine_path=None, interpreter_file=None):
     except OSError as exc:
         raise ProbeError("cannot write %s: %s" % (interpreter_file, exc)) from exc
 
+    cached = None
+    if discovery is not None:
+        cached = cache_servers(discovery, servers_file=servers_file,
+                               clock=clock)
+
     kept = sorted(k for k in existing if k not in ("schema", "interpreter",
                                                    "capabilities"))
+    written = [name for name, _, state in changes if state == "written"]
     lines = [
         "WROTE",
         "  %-42s %s" % (machine_path, "interpreter, capabilities"),
         "  %-42s %s" % (interpreter_file, chosen.executable),
+    ]
+    if cached is not None:
+        lines.append("  %-42s %s" % (cached, "%d server(s) last seen"
+                                     % len(discovery.servers)))
+    lines += [
         "",
         "INTERPRETER  python %s" % chosen.version_text,
         "  %s" % chosen.executable,
     ]
+    if changes:
+        lines += ["", "CAPABILITIES",
+                  table(("NAME", "TRANSPORT", "STATE"),
+                        [(name, _spec_text(entry), state)
+                         for name, entry, state in changes]).rstrip("\n")]
+    untouched = sorted(k for k in before if k not in dict(
+        (name, entry) for name, entry, _ in changes))
+    if untouched:
+        lines += ["", "CAPABILITIES LEFT ALONE", "  " + ", ".join(untouched)]
     if kept:
         lines += ["", "KEPT UNCHANGED", "  " + ", ".join(kept)]
     lines += ["", "Re-run this whenever the machine changes. It is idempotent."]
     return Result("probe", "\n".join(lines) + "\n",
-                  interpreter=chosen.executable, kept=len(kept))
+                  interpreter=chosen.executable, kept=len(kept),
+                  written=len(written))
+
+
+def _spec_text(entry):
+    """An entry as it would be written on the command line."""
+    transport = entry.get("transport")
+    provider = entry.get("provider")
+    if entry.get("tool_prefix"):
+        return "%s:%s" % (transport, entry["tool_prefix"])
+    if provider:
+        if isinstance(provider, str):
+            return "%s:%s" % (transport, provider)
+        return "%s:%s" % (transport, ",".join(provider))
+    return transport
 
 
 # ----------------------------------------------------------- permission
