@@ -105,8 +105,17 @@ class TestShimFiles(unittest.TestCase):
 @unittest.skipUnless(shutil.which("sh"), "no POSIX shell on this machine")
 class TestShShim(unittest.TestCase):
     def run_shim(self, *argv, env=None):
+        """Launch the shell by absolute path, resolved from the real PATH.
+
+        One test below strips PATH to prove the shim reports a missing
+        interpreter, and on POSIX the program name is resolved against the
+        *child's* PATH -- so a bare "sh" disappears along with everything else
+        the test meant to hide. Windows resolves against the parent's PATH
+        instead, which is why a bare name survives there and this only fails
+        away from it.
+        """
         result = subprocess.run(
-            ["sh", str(SH_SHIM), *argv],
+            [shutil.which("sh"), str(SH_SHIM), *argv],
             capture_output=True, text=True, env=env)
         return result
 
@@ -117,7 +126,13 @@ class TestShShim(unittest.TestCase):
         self.assertEqual(header["status"], "ok")
 
     def test_no_interpreter_is_still_a_framed_response(self):
-        """The one failure Python can never report, because Python never runs."""
+        """The one failure Python can never report, because Python never runs.
+
+        Emptying PATH takes `dirname` and `cat` with it, not just the
+        interpreters. That is deliberate rather than tolerated: the shim guards
+        both, so this also proves it reaches the interpreter message instead of
+        failing earlier on a missing utility.
+        """
         empty = tempfile.mkdtemp(prefix="kyrio-empty-")
         self.addCleanup(shutil.rmtree, empty, ignore_errors=True)
         env = dict(os.environ)
