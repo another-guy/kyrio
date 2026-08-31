@@ -143,13 +143,34 @@ class TestSkills(unittest.TestCase):
                     if noun in KNOWN_VERBS and rest:
                         self.assertIn(rest[0], KNOWN_VERBS[noun])
 
-    def test_no_skill_writes_settings_by_hand(self):
-        """Every write belongs to a command, so re-running is reproducible."""
+    def test_no_skill_is_granted_a_tool_that_edits_in_place(self):
+        """Checked against the grant rather than the prose.
+
+        Scanning the body cannot tell an instruction from a prohibition --
+        ``setup`` says "do not edit settings.json by hand", which is the rule
+        being enforced, not a violation of it. What a skill is *allowed* to do
+        has only one meaning.
+        """
+        for path in self.skills:
+            fields = frontmatter(path.read_text(encoding="utf-8"))
+            granted = fields.get("allowed-tools", "")
+            with self.subTest(skill=path.parent.name):
+                self.assertNotIn("Edit", granted)
+
+    def test_a_skill_that_may_write_says_where(self):
+        """A dirty working tree at the moment somebody is about to inspect
+        their own diff is genuinely disruptive, and a generated file in a
+        repository whose maintainers never opted into any of this is a
+        conversation rather than a commit (I7)."""
         for path in self.skills:
             text = path.read_text(encoding="utf-8")
+            fields = frontmatter(text)
+            if "Write" not in fields.get("allowed-tools", ""):
+                continue
             with self.subTest(skill=path.parent.name):
-                self.assertNotIn("Write(", text)
-                self.assertNotIn("Edit(", text)
+                self.assertIn(
+                    "output_root", text,
+                    "a skill that may write must say where, and this does not")
 
 
 if __name__ == "__main__":

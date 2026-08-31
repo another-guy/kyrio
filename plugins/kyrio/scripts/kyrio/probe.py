@@ -524,7 +524,7 @@ def last_probe(servers_file=None):
 
 
 def record(machine_path=None, interpreter_file=None, capabilities=None,
-           discovery=None, servers_file=None, clock=None):
+           discovery=None, servers_file=None, clock=None, output_root=None):
     """Write the machine layer and its shell-readable mirror.
 
     The interpreter is recorded twice on purpose: ``config.json`` holds it as
@@ -554,6 +554,12 @@ def record(machine_path=None, interpreter_file=None, capabilities=None,
                         else "written"))
         entries[name] = entry
     merged["capabilities"] = entries
+
+    # Where generated artifacts go. Recorded rather than defaulted: there is
+    # no safe default, because every candidate this pack could invent is
+    # either inside somebody's repository or somewhere they never chose (I7).
+    if output_root:
+        merged["output_root"] = output_root
 
     _write_json(machine_path, merged)
     try:
@@ -592,6 +598,8 @@ def record(machine_path=None, interpreter_file=None, capabilities=None,
         (name, entry) for name, entry, _ in changes))
     if untouched:
         lines += ["", "CAPABILITIES LEFT ALONE", "  " + ", ".join(untouched)]
+    if output_root:
+        lines += ["", "OUTPUT ROOT", "  " + str(output_root)]
     if kept:
         lines += ["", "KEPT UNCHANGED", "  " + ", ".join(kept)]
     lines += ["", "Re-run this whenever the machine changes. It is idempotent."]

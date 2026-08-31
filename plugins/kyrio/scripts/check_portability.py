@@ -114,8 +114,13 @@ PERMITTED_COMMANDS = {
     "cd", "ls", "cat", "head", "tail", "echo", "diff", "sort", "wc",
     "grep", "rg", "find", "sed", "awk", "test",
 }
+#: Fences that hold commands. ``text`` is deliberately absent: by convention it
+#: holds output or an example, and reading those as commands makes the rule
+#: fire on ordinary prose. A lint that cries wolf gets read past, and then it
+#: has stopped working. An unlabelled fence stays in, because an unlabelled
+#: fence in a skill usually is a command.
 COMMAND_FENCE_LANGS = {"", "sh", "bash", "shell", "console", "sh-session",
-                       "text", "zsh", "powershell", "pwsh"}
+                       "zsh", "powershell", "pwsh"}
 COMMAND_TOKEN_RE = re.compile(r"^[a-z][a-z0-9._-]*$")
 FENCE_RE = re.compile(r"^```([A-Za-z0-9_-]*)\s*$")
 URL_RE = re.compile(r"https?://[^\s`)\"'>]+", re.IGNORECASE)

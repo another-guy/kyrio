@@ -119,6 +119,16 @@ class TestRuleTwo(unittest.TestCase):
         body = '{"status": "ok"}'
         self.assertEqual(check(SKILL, self.fence(body, lang="json")), [])
 
+    def test_a_text_fence_is_output_rather_than_commands(self):
+        """Skills quote what a command returned, and prose in an example is
+        not an instruction to run something."""
+        body = "the retry loop reports a failed write as\ncommitted."
+        self.assertEqual(check(SKILL, self.fence(body, lang="text")), [])
+
+    def test_an_unlabelled_fence_is_still_read_as_commands(self):
+        """Which is what an unlabelled fence in a skill usually is."""
+        self.assertTrue(check(SKILL, self.fence("acmectl pr view 1", lang="")))
+
     def test_a_url_ties_prose_to_one_environment(self):
         findings = check(SKILL, "See https://wiki.example.com/runbook\n")
         self.assertIn("RULE 2", rules(findings))

@@ -38,6 +38,7 @@ kyrio probe servers        connected servers, and the state of each
 kyrio probe record         record the interpreter for the launcher to reuse
      [--set <capability>=<transport>[:<value>]]  ... repeatable
      [--servers]           also cache what discovery last saw
+     [--output-root <path>]  where generated artifacts go
 kyrio probe permission [--apply]
                            the one permission rule the broker needs
 kyrio scm pr diff <id>     the diff for one change under review
@@ -289,6 +290,7 @@ def _probe_record(args, rest):
     parser = cli.Parser(prog="kyrio probe record")
     parser.add_argument("--set", action="append", dest="assignments")
     parser.add_argument("--servers", action="store_true")
+    parser.add_argument("--output-root", dest="output_root")
     flags = parser.parse_args(rest)
 
     entries = {}
@@ -300,7 +302,8 @@ def _probe_record(args, rest):
         entries[name] = entry
 
     discovery = probe.discover_servers() if flags.servers else None
-    return probe.record(capabilities=entries, discovery=discovery)
+    return probe.record(capabilities=entries, discovery=discovery,
+                        output_root=flags.output_root)
 
 
 def _probe_permission(args, rest):
