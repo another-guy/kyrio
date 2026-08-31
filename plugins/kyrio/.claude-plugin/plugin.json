@@ -1,7 +1,7 @@
 {
   "name": "kyrio",
   "description": "Everyday engineering workflows: orientation, code reading, review, investigation, and release preparation. Skills describe the work; a local broker resolves how to reach each system on this machine.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Igor Soloydenko",
     "email": "soloydenko@gmail.com"
