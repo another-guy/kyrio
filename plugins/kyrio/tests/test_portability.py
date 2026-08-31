@@ -53,6 +53,20 @@ class TestRuleOne(unittest.TestCase):
     def test_an_ordinary_dotted_name_is_not_a_hostname(self):
         self.assertEqual(check(CODE, "value = os.path.dirname(x)\n"), [])
 
+    def test_a_module_constant_is_not_a_hostname(self):
+        """``capability.LOCAL`` reads as a ``.local`` address to a regular
+        expression and to nothing else."""
+        for line in ("self.assertEqual(r.transport, capability.LOCAL)\n",
+                     "if flavor == shell.LAN:\n"):
+            with self.subTest(line=line.strip()):
+                self.assertEqual(check(CODE, line), [])
+
+    def test_a_mixed_case_hostname_is_still_flagged(self):
+        """Only the suffix has to be lower case; the rest of a hostname is
+        written however someone typed it."""
+        findings = check(CODE, 'HOST = "Build-01.Example.internal"\n')
+        self.assertEqual(rules(findings), ["RULE 1"])
+
     def test_a_home_directory_is_flagged(self):
         for line in ('p = "C:\\\\Users\\\\someone\\\\code"\n',
                      'p = "/home/someone/code"\n',

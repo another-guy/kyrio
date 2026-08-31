@@ -67,10 +67,26 @@ COUPLING_WORDS = (
 COUPLING_RE = re.compile(
     r"\b(%s)\b" % "|".join(COUPLING_WORDS), re.IGNORECASE)
 
-#: Hostnames only ever resolvable inside one network.
+#: Hostnames only ever resolvable inside one network. The suffix is captured
+#: so that ``private_host`` can insist it was written in lower case.
 PRIVATE_HOST_RE = re.compile(
     r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*"
-    r"\.(?:internal|intranet|intra|corp|local|lan|priv)\b", re.IGNORECASE)
+    r"\.(internal|intranet|intra|corp|local|lan|priv)\b", re.IGNORECASE)
+
+def private_host(line):
+    """A private hostname on this line, or ``None``.
+
+    The suffix has to be written in lower case. Hostnames are, and an
+    upper-case final label is a module constant -- ``capability.LOCAL`` reads
+    as a ``.local`` address to a regular expression and to nothing else. The
+    cost of the looser rule is not the false positive itself; it is that a
+    lint which cries wolf gets read past, and then it has stopped working.
+    """
+    for match in PRIVATE_HOST_RE.finditer(line):
+        if match.group(1).islower():
+            return match
+    return None
+
 
 #: Home directories are per-machine. ``~`` and ``%USERPROFILE%`` are not.
 #: The separator repeats because the likeliest place for a leaked Windows path
@@ -163,7 +179,7 @@ def _rule_one(relative, lines):
                 relative, number, "RULE 1",
                 "environment-coupling word %r; this tool models one machine"
                 % match.group(1), line))
-        match = PRIVATE_HOST_RE.search(line)
+        match = private_host(line)
         if match:
             findings.append(Finding(
                 relative, number, "RULE 1",

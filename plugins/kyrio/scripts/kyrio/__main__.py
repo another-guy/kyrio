@@ -24,7 +24,7 @@ _SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-from kyrio import cli, config, emit, ingest, probe, repo  # noqa: E402 -- follows bootstrap
+from kyrio import capability, cli, config, emit, ingest, probe, repo  # noqa: E402 -- follows bootstrap
 
 USAGE = """\
 kyrio repo map             entry points, module boundaries, build and test commands
@@ -93,31 +93,28 @@ def caps(args):
     no baseline, and no notion of a second environment (I4).
     """
     resolved = _resolve(args)
-    configured = dict(config.INTRINSIC)
-    for name, entry in (resolved.get("capabilities") or {}).items():
-        configured[name] = entry
+    resolutions = capability.resolve_all(resolved)
 
-    rows = []
-    counts = {"ready": 0, "configured": 0, "unconfigured": 0, "unavailable": 0}
-    for name in config.CAPABILITIES:
-        entry = configured.get(name)
-        transport = entry.get("transport") if isinstance(entry, dict) else entry
-        if name in config.INTRINSIC:
-            status = "ready"
-        elif transport in (None, ""):
-            status = "unconfigured"
-        elif transport == "unavailable":
-            status = "unavailable"
-        else:
-            status = "configured"
-        counts[status] += 1
-        rows.append((name, transport or "--", status))
+    counts = dict.fromkeys(capability.STATUSES, 0)
+    for resolution in resolutions:
+        counts[resolution.status] += 1
 
+    rows = [(r.capability, r.transport or "--", r.status) for r in resolutions]
     payload = cli.table(("CAPABILITY", "TRANSPORT", "STATUS"), rows)
-    if counts["unconfigured"] or counts["unavailable"]:
-        payload += (
-            "\nStatus is what configuration says, not what was last probed.\n"
-            "Run /kyrio:setup to probe this machine and record the result.\n")
+
+    # Every gap carries the specific fix rather than one hint covering all of
+    # them: "nothing is configured" and "configured for something this pack
+    # has no adapter for" are different problems with different owners.
+    gaps = {}
+    for r in resolutions:
+        if not r.usable and r.remediation:
+            gaps.setdefault(r.remediation, []).append(r.capability)
+    if gaps:
+        payload += "\nGAPS\n" + "".join(
+            "  %s: %s\n" % (", ".join(names), remediation)
+            for remediation, names in gaps.items())
+        payload += ("\nStatus is what configuration says, not what was last "
+                    "probed.\n")
     return emit.ok("caps", payload, layers=len(resolved.layers), **counts)
 
 

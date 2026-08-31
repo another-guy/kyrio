@@ -143,8 +143,8 @@ class TestCaps(Run):
 
     def test_configured_transports_are_reported(self):
         self.write_machine({"capabilities": {
-            "scm": {"transport": "cli"},
-            "issue": {"transport": "server"},
+            "scm": {"transport": "cli", "provider": "provider-a"},
+            "issue": {"transport": "server", "tool_prefix": "toolns"},
             "kb": {"transport": "unavailable"},
         }})
         _, header, payload = self.run_kyrio("--cwd", str(self.root), "caps")
@@ -152,6 +152,27 @@ class TestCaps(Run):
         self.assertEqual(header["unavailable"], 1)
         self.assertEqual(header["unconfigured"], 2)  # ci and obs
         self.assertIn("server", payload)
+
+    def test_an_incomplete_entry_is_not_reported_as_configured(self):
+        """A cli transport with no provider names no adapter to choose. What
+        configuration says is only useful while it is checked."""
+        self.write_machine({"capabilities": {"scm": {"transport": "cli"}}})
+        _, header, payload = self.run_kyrio("--cwd", str(self.root), "caps")
+        self.assertEqual(header["configured"], 0)
+        self.assertIn("provider", payload)
+
+    def test_each_gap_carries_its_own_fix(self):
+        """One hint covering every gap sends a person to the wrong file. A
+        capability configured for a provider nothing ships for is not fixed by
+        running setup again, and its line does not say so."""
+        self.write_machine({"capabilities": {
+            "scm": {"transport": "cli", "provider": "provider-a"},
+        }})
+        _, _, payload = self.run_kyrio("--cwd", str(self.root), "caps")
+        gaps = payload.partition("GAPS")[2]
+        scm = [l for l in gaps.splitlines() if l.strip().startswith("scm:")][0]
+        self.assertIn("provider-a", scm)
+        self.assertNotIn("/kyrio:setup", scm)
 
     def test_nearer_layers_change_the_report(self):
         self.write_machine({"capabilities": {"scm": {"transport": "cli"}}})
@@ -163,7 +184,7 @@ class TestCaps(Run):
 
     def test_a_fully_configured_machine_gets_no_setup_hint(self):
         self.write_machine({"capabilities": {
-            name: {"transport": "cli"}
+            name: {"transport": "cli", "provider": "provider-a"}
             for name in config.CAPABILITIES if name != "repo"}})
         _, header, payload = self.run_kyrio("--cwd", str(self.root), "caps")
         self.assertEqual(header["unconfigured"], 0)

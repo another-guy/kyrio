@@ -21,7 +21,7 @@ import pathlib
 import subprocess
 import sys
 
-from kyrio import config
+from kyrio import capability, config
 from kyrio.cli import table
 from kyrio.repo import Result
 
@@ -134,16 +134,10 @@ def report(cwd, machine_path=None):
         chosen = None
         interpreter_line = "%-12s %s" % ("python", exc)
 
+    # Resolved through the same module ``caps`` uses, so that two commands
+    # cannot describe one machine two different ways.
     resolved = config.resolve(start=cwd, machine_path=machine_path)
-    rows = []
-    for name in config.CAPABILITIES:
-        entry = (resolved.get("capabilities") or {}).get(name)
-        transport = entry.get("transport") if isinstance(entry, dict) else entry
-        if name in config.INTRINSIC:
-            rows.append((name, "local", "ready"))
-        else:
-            rows.append((name, transport or "--",
-                         "configured" if transport else "not configured yet"))
+    rows = capability.rows(resolved)
 
     recorded = _recorded_interpreter(machine_path)
     lines = [

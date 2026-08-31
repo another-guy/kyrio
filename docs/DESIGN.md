@@ -404,6 +404,28 @@ which is how a machine mid-migration between observability products is
 expressed: try the first, fall through to the next. No skill learns that a
 migration is underway.
 
+Resolution is a configuration read, not a probe. Setup walks the order above
+and records what it found; the broker reads that answer back on every call.
+Re-probing per call would make the cost of a capability the cost of proving it
+still works, and would make an offline moment look like a misconfiguration.
+
+Two verdicts come out of it, because they have two different owners.
+*Configured* is a judgment about the configuration and is what `caps` and
+`probe` report. *Usable* additionally requires that something ships which can
+serve the transport. A machine configured correctly for a provider this pack
+has no adapter for is configured and not usable, and the message says exactly
+that: the gap is in the pack, and telling the person to re-run setup would send
+them to fix the one thing that is already right.
+
+Each gap carries its own remediation rather than sharing one hint, and a
+remediation never names its own capability -- every caller already has the
+name, and repeating it stops two capabilities with the same gap from
+collapsing onto one line. Where a value came from a layer, the remediation
+names that layer: told only that a capability is off, a person has four files
+to search, and provenance is the reason the cascade records it. A capability
+switched off deliberately is the one case that is never sent to setup, because
+there the fix would undo a decision rather than repair a fault.
+
 ### Adapter contract
 
 Every adapter under `providers/`:
