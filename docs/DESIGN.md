@@ -143,6 +143,7 @@ kyrio/                              private git repo; also its own marketplace
         ingest.py                   inbound normalization          (S3)
         probe.py                    interpreter, CLI, server detection
         repo.py                     local git and build-file analysis
+        scm.py                      changes under review, and their diffs
         providers/                  the ONLY provider-aware code
       check_portability.py
     tests/
@@ -391,6 +392,18 @@ shorten.
 The door writes nothing. It is not a cache and not a store; a caller that wants
 the result kept writes it where section 8 says to (I7).
 
+### Serving a capability manually
+
+The manual transport is served by the capability module and is not a stub.
+Where a person is the transport, the broker returns instructions that end at
+`kyrio ingest` — the one door for data the broker did not produce (S3) — so
+that what comes back is bounded, decoded, and labelled `external` rather than
+pasted into a conversation and mistaken for something the broker fetched.
+
+Those instructions name no product. They are read on a machine whose tooling
+this pack has never heard of, which is the whole reason the transport exists,
+and naming somewhere to click would be wrong on most of them.
+
 ### Transport resolution
 
 Per capability, in order: a connected server, then a CLI, then a browser-driven
@@ -441,6 +454,24 @@ carries in `capabilities.*.provider` — plus `CAPABILITIES`, `TRANSPORT`,
   hand-written fixtures (I8)
 
 `providers/` is the only path where provider names may appear (I1).
+
+**A format is not a provider's format.** A unified diff is parsed by the
+capability module, not by each adapter: every host that can emit a diff emits
+this one, and a counter written per adapter is the same arithmetic copied once
+per provider, drifting from the first copy onward. What belongs in an adapter
+is what genuinely differs — the binary, its arguments, and the shape of an
+identifier.
+
+**Each adapter validates its own identifiers.** A change is a number in one
+system and a forty-character hash in another. A rule written centrally would
+be either wrong somewhere or so loose it caught nothing anywhere, and an
+identifier that its host will not recognize is refused before a process is
+launched rather than after.
+
+**A tool's own words survive a failure.** A change that does not exist and a
+credential that expired are both a non-zero exit; only the message separates
+them, so it is carried through as the payload rather than replaced with
+something tidier.
 
 **Two probes, never one.** *Installed* and *signed in* are different states
 with different owners: one is an install a person may not be permitted to
@@ -1023,6 +1054,27 @@ that comments are missed.
 
 **Shape when added:** accept TOML for hand-authored layers only; continue
 writing JSON. `kyrio config explain` already covers most of what comments would.
+
+### D5 — Server transport for capability verbs
+
+**Deferred.** A server-backed capability returns a `call` naming
+`<tool-namespace>__<tool-name>`. Resolution supplies the namespace, derived
+from the server's name, but the *tool name* is provider knowledge and there is
+nowhere to ask for it: server transports resolve no adapter. Letting a skill
+construct the name was rejected outright — it is a deterministic mapping, and
+putting it in L2 inverts I9.
+
+`scm` therefore serves `cli` and `manual`. A machine configured for a server
+transport resolves as configured and reports that nothing can serve it, which
+is true and is the same message any other unserved provider gets.
+
+**Trigger:** the first capability whose only realistic transport is a connected
+server, which is `issue` in P4 — the design's own worked example of a `call`.
+
+**Shape when added:** server transports resolve an adapter by provider id, the
+same way `cli` does, and that adapter declares a tool name per verb. A server
+entry then carries both `provider` and `tool_prefix`: the first says who it is,
+the second says where its tools live on this machine.
 
 ---
 

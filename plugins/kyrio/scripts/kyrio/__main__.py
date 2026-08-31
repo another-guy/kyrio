@@ -24,7 +24,8 @@ _SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-from kyrio import capability, cli, config, emit, ingest, probe, repo  # noqa: E402 -- follows bootstrap
+from kyrio import (capability, cli, config, emit, ingest, probe,  # noqa: E402 -- follows bootstrap
+                   repo, scm)
 
 USAGE = """\
 kyrio repo map             entry points, module boundaries, build and test commands
@@ -39,6 +40,7 @@ kyrio probe record         record the interpreter for the launcher to reuse
      [--servers]           also cache what discovery last saw
 kyrio probe permission [--apply]
                            the one permission rule the broker needs
+kyrio scm pr diff <id>     the diff for one change under review
 kyrio caps                 what this machine can reach, and what is missing
 kyrio config explain       effective configuration, and the layer behind each value
 kyrio ingest <kind> --file <path>
@@ -305,6 +307,66 @@ def _probe_permission(args, rest):
     return probe.permission(apply=flags.apply)
 
 
+# ------------------------------------------------------------------ scm
+
+
+def _capability(args, name):
+    """Resolve one capability, or say why it cannot be used.
+
+    Every transport-backed noun goes through here so that a gap is reported
+    the same way everywhere. A noun that composed its own wording would give
+    the same machine two different explanations of one problem.
+    """
+    resolution = capability.resolve(name, _resolve(args))
+    if not resolution.usable:
+        raise _Unusable(resolution)
+    return resolution
+
+
+class _Unusable(Exception):
+    def __init__(self, resolution):
+        super().__init__(resolution.remediation or "")
+        self.resolution = resolution
+
+
+def scm_command(args):
+    rest = list(args.rest)
+    verb = rest[0] if rest else None
+    handler = SCM_VERBS.get(verb)
+    if handler is None:
+        return emit.error("usage: kyrio scm pr diff <id>",
+                          known=sorted(SCM_VERBS))
+    try:
+        return handler(args, rest[1:])
+    except _Unusable as exc:
+        return emit.unavailable("scm", exc.resolution.remediation
+                                or "not usable on this machine")
+    except scm.ScmError as exc:
+        return emit.error(exc.message, exc.detail, kind="scm")
+
+
+def _scm_pr(args, rest):
+    verb = rest[0] if rest else None
+    if verb != "diff":
+        return emit.error("usage: kyrio scm pr diff <id>", known=["diff"])
+
+    parser = cli.Parser(prog="kyrio scm pr diff")
+    parser.add_argument("id", nargs="?")
+    flags = parser.parse_args(rest[1:])
+    if not flags.id:
+        return emit.error("usage: kyrio scm pr diff <id>")
+
+    resolution = _capability(args, "scm")
+    if scm.requires_manual(resolution):
+        # A person is the transport, deliberately. The instructions end at
+        # the inbound door rather than asking for a paste (S3).
+        return emit.manual("scm", scm.manual_diff_instructions(flags.id))
+
+    result = scm.pr_diff(resolution, flags.id, cwd=_cwd(args))
+    return emit.ok(result.kind, result.payload,
+                   transport=resolution.transport, **result.meta)
+
+
 # -------------------------------------------------------------- ingest
 
 
@@ -337,6 +399,11 @@ PROBE_VERBS = {
 }
 
 
+SCM_VERBS = {
+    "pr": _scm_pr,
+}
+
+
 REPO_VERBS = {
     "map": _repo_map,
     "churn": _repo_churn,
@@ -351,6 +418,7 @@ COMMANDS = {
     "ingest": ingest_command,
     "probe": probe_command,
     "repo": repo_command,
+    "scm": scm_command,
 }
 
 

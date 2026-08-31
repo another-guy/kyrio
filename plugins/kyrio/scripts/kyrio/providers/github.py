@@ -18,6 +18,8 @@ Nothing here installs anything and nothing here starts a sign-in. Both remedy
 strings below are printed for a person to run themselves.
 """
 
+import re
+
 #: The value a machine's config carries in ``capabilities.<name>.provider``.
 ID = "github"
 
@@ -39,9 +41,38 @@ LOGIN = "gh auth login"
 INSTALL = "install the GitHub CLI: https://cli.github.com"
 
 
+#: How a change is named here: a pull request number, and nothing else.
+#: Validated by the adapter rather than centrally, because the same concept is
+#: a forty-character hash elsewhere and one rule cannot fit both.
+PR_ID_RE = re.compile(r"\A[1-9][0-9]{0,9}\Z")
+
+
 def health(run):
     return run(HEALTH)
 
 
 def auth(run):
     return run(AUTH)
+
+
+def pr_identifier(text):
+    """Normalize and check one pull request identifier.
+
+    A leading ``#`` is accepted because that is how people write it and how it
+    is pasted out of a browser; the tool itself does not take one.
+    """
+    pinned = (text or "").strip().lstrip("#").strip()
+    if not PR_ID_RE.match(pinned):
+        raise ValueError(
+            "a pull request is named by its number, got %r" % (text or ""))
+    return pinned
+
+
+def pr_diff(run, identifier, cwd=None):
+    """The unified diff for one pull request.
+
+    The repository is left to the tool, which reads it from the git remote of
+    the directory it runs in. Naming it here would mean this pack carrying a
+    fact about one checkout on one machine (I2).
+    """
+    return run([BINARY, "pr", "diff", identifier], cwd=cwd)

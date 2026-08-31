@@ -38,6 +38,7 @@ KNOWN_VERBS = {
     "probe": set(main_module.PROBE_VERBS),
     "config": {"explain"},
     "ingest": set(ingest.KINDS),
+    "scm": set(main_module.SCM_VERBS),
 }
 
 

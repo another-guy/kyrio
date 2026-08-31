@@ -196,7 +196,7 @@ class Ran:
         return "Ran(%s, %s)" % (self.outcome, self.command)
 
 
-def run(argv, timeout=PROBE_TIMEOUT):
+def run(argv, timeout=PROBE_TIMEOUT, cwd=None):
     """Execute a probe and classify what happened.
 
     An argument list, never a shell string, and never ``shell=True`` (I5).
@@ -207,11 +207,16 @@ def run(argv, timeout=PROBE_TIMEOUT):
     cannot run is an ordinary answer about this machine -- it is most of what
     the report has to say -- and raising would make the caller handle four
     exception types to write four table rows.
+
+    ``cwd`` matters more than it looks: a tool that works out which repository
+    it is talking about from the directory it was started in gives a different
+    answer, or none, from somewhere else.
     """
     try:
         result = subprocess.run(
             list(argv), capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout)
+            encoding="utf-8", errors="replace", timeout=timeout,
+            cwd=str(cwd) if cwd else None)
     except FileNotFoundError:
         return Ran(MISSING, argv, detail="not found")
     except subprocess.TimeoutExpired:

@@ -103,7 +103,10 @@ class TestDispatch(Run):
         for name in main_module.COMMANDS:
             with self.subTest(command=name):
                 self.assertIn("kyrio %s" % name, payload)
-        for word in ("issue", "scm", "ci", "kb", "obs"):
+        unbuilt = [name for name in config.CAPABILITIES
+                   if name not in main_module.COMMANDS]
+        self.assertTrue(unbuilt, "every capability has a noun; drop this half")
+        for word in unbuilt:
             with self.subTest(command=word):
                 self.assertNotIn("kyrio %s" % word, payload)
 

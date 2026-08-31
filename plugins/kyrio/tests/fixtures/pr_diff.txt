@@ -1,0 +1,44 @@
+diff --git a/src/intake/routes.py b/src/intake/routes.py
+index 3a1f2c9..b7e4d10 100644
+--- a/src/intake/routes.py
++++ b/src/intake/routes.py
+@@ -84,7 +84,11 @@ def register(app):
+
+
+ def submit(request):
+-    return create_order(request.body)
++    payload = request.body
++    if not payload:
++        raise BadRequest("empty submission")
++    return create_order(payload)
+
+
+ def health(request):
+diff --git a/src/store/orders.py b/src/store/orders.py
+index 91c0aa4..2d5b8f1 100644
+--- a/src/store/orders.py
++++ b/src/store/orders.py
+@@ -53,6 +53,8 @@ class Orders:
+
+     def save(self, record):
+         with self.pool.transaction() as tx:
++            if record.id is None:
++                record.id = self.next_id(tx)
+             tx.insert("orders", record.as_row())
+-            return record.id
++        return record.id
+diff --git a/tests/test_orders.py b/tests/test_orders.py
+new file mode 100644
+index 0000000..4f9ac21
+--- /dev/null
++++ b/tests/test_orders.py
+@@ -0,0 +1,9 @@
++import unittest
++
++
++class TestOrders(unittest.TestCase):
++    def test_an_empty_submission_is_refused(self):
++        with self.assertRaises(BadRequest):
++            submit(Request(body=""))
++
++
