@@ -18,6 +18,7 @@ Nothing here installs anything and nothing here starts a sign-in. Both remedy
 strings below are printed for a person to run themselves.
 """
 
+import json
 import re
 
 #: The value a machine's config carries in ``capabilities.<name>.provider``.
@@ -66,6 +67,57 @@ def pr_identifier(text):
         raise ValueError(
             "a pull request is named by its number, got %r" % (text or ""))
     return pinned
+
+
+#: What the listing has to carry. Asked for by name rather than taking the
+#: default shape, so a field added upstream cannot quietly widen the payload.
+LOG_FIELDS = "number,title,mergedAt,author"
+
+#: A ceiling, not a page size. Someone asking what shipped last week wants a
+#: readable list; a year of history is a different question.
+LOG_LIMIT = 100
+
+
+def log(run, since, limit=LOG_LIMIT, cwd=None):
+    """Changes merged since a date, most recent first."""
+    return run([BINARY, "pr", "list",
+                "--state", "merged",
+                "--search", "merged:>=%s" % since,
+                "--limit", str(limit),
+                "--json", LOG_FIELDS], cwd=cwd)
+
+
+def parse_log(text):
+    """This tool's JSON into the broker's records.
+
+    Parsed in the adapter because the *shape* is this tool's. What comes out
+    is the shape every adapter returns, which is what lets one skill read the
+    answer from any of them (I1).
+
+    A missing author is left empty rather than invented. An automated merge
+    genuinely has none, and "unknown" would read as a person nobody could find.
+    """
+    try:
+        entries = json.loads(text or "[]")
+    except ValueError as exc:
+        raise ValueError("%s did not return the listing as JSON: %s"
+                         % (BINARY, exc)) from exc
+    if not isinstance(entries, list):
+        raise ValueError("%s returned %s, expected a list"
+                         % (BINARY, type(entries).__name__))
+
+    records = []
+    for entry in entries:
+        author = entry.get("author") or {}
+        records.append({
+            "id": str(entry.get("number", "")),
+            # The date alone. A timestamp to the second is noise in a list
+            # somebody is scanning, and the full value is in the host anyway.
+            "at": (entry.get("mergedAt") or "")[:10],
+            "author": author.get("login", "") if isinstance(author, dict) else "",
+            "title": entry.get("title", ""),
+        })
+    return records
 
 
 def pr_diff(run, identifier, cwd=None):

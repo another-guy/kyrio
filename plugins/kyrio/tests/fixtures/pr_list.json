@@ -1,0 +1,20 @@
+[
+  {
+    "number": 4821,
+    "title": "Refuse an empty submission at the intake boundary",
+    "mergedAt": "2026-08-28T14:22:10Z",
+    "author": { "login": "author-one" }
+  },
+  {
+    "number": 4817,
+    "title": "Assign an order id before the insert",
+    "mergedAt": "2026-08-27T09:05:44Z",
+    "author": { "login": "author-two" }
+  },
+  {
+    "number": 4802,
+    "title": "Retry the pool checkout once on a transient failure",
+    "mergedAt": "2026-08-25T17:48:03Z",
+    "author": null
+  }
+]

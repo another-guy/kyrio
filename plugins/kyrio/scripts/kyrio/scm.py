@@ -21,6 +21,7 @@ This module returns results; it never prints. ``__main__`` emits them (S1).
 import re
 
 from kyrio import capability, probe
+from kyrio.cli import table
 from kyrio.repo import Result
 
 
@@ -80,6 +81,68 @@ def manual_diff_instructions(identifier):
         % identifier)
 
 
+def _answered(adapter, ran):
+    """Raise unless the tool actually answered.
+
+    Shared by every verb: they fail the same ways for the same reasons, and
+    two copies of this drift into two different messages for one problem.
+    """
+    if ran.outcome == probe.MISSING:
+        raise ScmError("%s is configured for this machine but is not installed"
+                       % adapter.BINARY)
+    if not ran.answered:
+        # The tool's own words, kept. A change that does not exist and a
+        # credential that expired are both a non-zero exit, and only the
+        # message separates them.
+        raise ScmError("%s: %s" % (adapter.BINARY, ran.detail),
+                       detail=ran.output.strip() or None)
+    return ran
+
+
+#: Every adapter returns records with these keys, whatever its own listing
+#: looks like. The rendering below is written once against this shape.
+LOG_KEYS = ("id", "at", "author", "title")
+
+
+def log(resolution, since, label, cwd=None, runner=None):
+    """Changes merged in a window.
+
+    Nothing merged is a real answer, not a failure. A window with no changes
+    in it is exactly what somebody asking "what shipped" needs to hear, and
+    reporting it as an error would send them looking for a broken tool.
+    """
+    adapter = resolution.adapter
+    runner = probe.run if runner is None else runner
+
+    ran = _answered(adapter, adapter.log(runner, since, cwd=cwd))
+    try:
+        records = adapter.parse_log(ran.output)
+    except ValueError as exc:
+        raise ScmError(str(exc), detail=ran.output.strip() or None) from exc
+
+    if not records:
+        payload = "  nothing merged since %s (%s)\n" % (since, label)
+    else:
+        payload = table(("ID", "MERGED", "AUTHOR", "TITLE"),
+                        [tuple(r.get(key, "") for key in LOG_KEYS)
+                         for r in records])
+    return Result("log", payload, provider=adapter.ID, since=since,
+                  window=label, changes=len(records))
+
+
+def manual_log_instructions(since, label):
+    """What to do where a person is the transport."""
+    return (
+        "No automated transport for changes on this machine.\n"
+        "\n"
+        "  1. List what merged since %s (%s) wherever this team reviews code.\n"
+        "  2. Save the list to a file, with the date and author of each.\n"
+        "  3. Bring it back in:\n"
+        "\n"
+        "       kyrio ingest text --file <path>\n"
+        % (since, label))
+
+
 def pr_diff(resolution, identifier, cwd=None, runner=None):
     """The diff for one change under review.
 
@@ -98,15 +161,7 @@ def pr_diff(resolution, identifier, cwd=None, runner=None):
     except ValueError as exc:
         raise ScmError(str(exc)) from exc
 
-    ran = adapter.pr_diff(runner, pinned, cwd=cwd)
-    if ran.outcome == probe.MISSING:
-        raise ScmError(
-            "%s is configured for this machine but is not installed"
-            % adapter.BINARY)
-    if not ran.answered:
-        raise ScmError("%s: %s" % (adapter.BINARY, ran.detail),
-                       detail=ran.output.strip() or None)
-
+    ran = _answered(adapter, adapter.pr_diff(runner, pinned, cwd=cwd))
     if not ran.output.strip():
         raise ScmError("%s returned an empty diff for %s"
                        % (adapter.BINARY, pinned))

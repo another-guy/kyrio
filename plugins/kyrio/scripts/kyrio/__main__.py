@@ -41,6 +41,7 @@ kyrio probe record         record the interpreter for the launcher to reuse
 kyrio probe permission [--apply]
                            the one permission rule the broker needs
 kyrio scm pr diff <id>     the diff for one change under review
+kyrio scm log [--since 7d] what merged, and when
 kyrio caps                 what this machine can reach, and what is missing
 kyrio config explain       effective configuration, and the layer behind each value
 kyrio ingest <kind> --file <path>
@@ -399,8 +400,29 @@ PROBE_VERBS = {
 }
 
 
+def _scm_log(args, rest):
+    parser = cli.Parser(prog="kyrio scm log")
+    parser.add_argument("--since", default=DEFAULT_LOG_WINDOW)
+    flags = parser.parse_args(rest)
+    since, label = repo.since_date(flags.since)
+
+    resolution = _capability(args, "scm")
+    if scm.requires_manual(resolution):
+        return emit.manual("scm", scm.manual_log_instructions(since, label))
+
+    result = scm.log(resolution, since, label, cwd=_cwd(args))
+    return emit.ok(result.kind, result.payload,
+                   transport=resolution.transport, **result.meta)
+
+
+#: Short on purpose. "What shipped" is nearly always a question about the last
+#: few days; ``repo churn`` answers the long-range version of it.
+DEFAULT_LOG_WINDOW = "7d"
+
+
 SCM_VERBS = {
     "pr": _scm_pr,
+    "log": _scm_log,
 }
 
 

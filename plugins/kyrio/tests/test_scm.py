@@ -18,6 +18,7 @@ from kyrio.providers import github
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 DIFF = (FIXTURES / "pr_diff.txt").read_text(encoding="utf-8")
+LISTING = (FIXTURES / "pr_list.json").read_text(encoding="utf-8")
 
 
 def resolution(transport="cli", adapter=github):
@@ -141,6 +142,68 @@ class TestPrDiff(unittest.TestCase):
             scm.pr_diff(resolution(), "4821", runner=answering("   \n"))
 
 
+class TestLog(unittest.TestCase):
+    def test_every_change_is_listed(self):
+        run = answering(LISTING)
+        result = scm.log(resolution(), "2026-08-24", "7 days", runner=run)
+        self.assertEqual(result.meta["changes"], 3)
+        self.assertIn("4821", result.payload)
+        self.assertIn("author-one", result.payload)
+
+    def test_the_argument_list_asks_for_the_fields_by_name(self):
+        """Taking the default shape would let a field added upstream widen the
+        payload without anyone deciding to."""
+        run = answering(LISTING)
+        scm.log(resolution(), "2026-08-24", "7 days", runner=run)
+        argv = run.calls[0][0]
+        self.assertEqual(argv[:3], ["gh", "pr", "list"])
+        self.assertIn("--json", argv)
+        self.assertIn("merged:>=2026-08-24", argv)
+
+    def test_a_date_is_kept_and_a_timestamp_is_not(self):
+        """A time to the second is noise in a list somebody is scanning, and
+        the exact value is in the host anyway."""
+        records = github.parse_log(LISTING)
+        self.assertEqual(records[0]["at"], "2026-08-28")
+
+    def test_a_change_nobody_merged_by_hand_has_no_author(self):
+        """An automated merge genuinely has none. "unknown" would read as a
+        person somebody could go and find."""
+        records = github.parse_log(LISTING)
+        self.assertEqual(records[2]["author"], "")
+
+    def test_nothing_merged_is_an_answer_rather_than_a_failure(self):
+        """Exactly what somebody asking "what shipped" needs to hear. An error
+        here would send them looking for a broken tool."""
+        result = scm.log(resolution(), "2026-08-24", "7 days",
+                         runner=answering("[]"))
+        self.assertEqual(result.meta["changes"], 0)
+        self.assertIn("nothing merged", result.payload)
+
+    def test_output_that_is_not_the_listing_is_refused_with_what_came_back(self):
+        run = answering("Warning: something happened\nnot json at all")
+        with self.assertRaises(scm.ScmError) as caught:
+            scm.log(resolution(), "2026-08-24", "7 days", runner=run)
+        self.assertIn("JSON", caught.exception.message)
+        self.assertIn("not json at all", caught.exception.detail)
+
+    def test_a_listing_of_the_wrong_shape_is_refused(self):
+        with self.assertRaises(scm.ScmError):
+            scm.log(resolution(), "2026-08-24", "7 days",
+                    runner=answering('{"number": 1}'))
+
+    def test_every_record_carries_the_shared_keys(self):
+        """One rendering is written against this shape, for every adapter."""
+        for record in github.parse_log(LISTING):
+            self.assertEqual(set(record), set(scm.LOG_KEYS))
+
+    def test_a_tool_that_is_not_installed(self):
+        run = answering("", outcome=probe.MISSING, detail="not found")
+        with self.assertRaises(scm.ScmError) as caught:
+            scm.log(resolution(), "2026-08-24", "7 days", runner=run)
+        self.assertIn("not installed", caught.exception.message)
+
+
 class TestManualTransport(unittest.TestCase):
     def test_manual_is_recognized_from_the_resolution(self):
         self.assertTrue(scm.requires_manual(resolution(transport="manual")))
@@ -164,13 +227,18 @@ class TestManualTransport(unittest.TestCase):
     def test_they_do_not_ask_for_a_shortened_diff(self):
         self.assertIn("Do not shorten", scm.manual_diff_instructions("1"))
 
+    def test_the_log_instructions_also_end_at_the_door(self):
+        text = scm.manual_log_instructions("2026-08-24", "7 days")
+        self.assertIn("kyrio ingest text --file", text)
+        self.assertIn("2026-08-24", text)
+
 
 class TestAdapterContractForScm(unittest.TestCase):
     """Applies to every adapter serving this capability, written or not."""
 
     def test_each_can_name_and_fetch_a_change(self):
         for adapter in providers.for_capability("scm"):
-            for name in ("pr_identifier", "pr_diff"):
+            for name in ("pr_identifier", "pr_diff", "log", "parse_log"):
                 with self.subTest(adapter=adapter.ID, member=name):
                     self.assertTrue(callable(getattr(adapter, name, None)))
 
