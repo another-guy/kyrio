@@ -262,8 +262,9 @@ def _probe_servers(args, rest):
     discovery = probe.discover_servers()
     if discovery.problem:
         raise probe.ProbeError(discovery.problem)
-    rows = [(s.name, s.state, s.address) for s in discovery.servers]
-    payload = (cli.table(("NAME", "STATE", "ADDRESS"), rows) if rows
+    rows = [(s.name, s.state, s.prefix, s.address)
+            for s in discovery.servers]
+    payload = (cli.table(("NAME", "STATE", "PREFIX", "ADDRESS"), rows) if rows
                else "  none configured\n")
     return repo.Result("servers", payload,
                        servers=len(discovery.servers),

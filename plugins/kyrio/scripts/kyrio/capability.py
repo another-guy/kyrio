@@ -29,6 +29,8 @@ the only path where one may be (I1).
 This module never writes output. See ``emit`` (S1).
 """
 
+import re
+
 from kyrio import config, providers
 
 SERVER = "server"
@@ -138,9 +140,22 @@ def parse_spec(spec):
 
     # A comma-separated list is the ordered fallthrough: try the first,
     # fall through to the next.
-    names = [part.strip() for part in value.split(",") if part.strip()]
+    names = [normalize_provider(part) for part in value.split(",")
+             if part.strip()]
     return {"transport": transport,
             "provider": names[0] if len(names) == 1 else names}
+
+
+#: A provider id has to match what an adapter registers under, and setup takes
+#: this from whatever a person typed. Canonicalizing here means "Provider A"
+#: and "provider-a" reach the same adapter instead of one of them silently
+#: reaching none. A tool prefix is deliberately *not* normalized: that one is
+#: case-sensitive and derived rather than typed.
+_PROVIDER_SEPARATORS = re.compile(r"[^0-9a-z]+")
+
+
+def normalize_provider(text):
+    return _PROVIDER_SEPARATORS.sub("-", text.strip().lower()).strip("-")
 
 
 class Resolution:

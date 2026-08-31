@@ -46,21 +46,29 @@ say so.
 
 ## 3. Capabilities
 
-The SERVERS section says which servers exist and which are connected. Which
-one serves which capability is a judgment: the listing proves a server is
-reachable, never what it is for.
+Two passes: propose what the machine shows, then ask about what it cannot.
 
-For each capability still unconfigured, decide whether a connected server
-serves it, using its name and address as the only evidence. Where nothing
-connected plausibly serves one, leave it alone. An unconfigured capability is
-a gap and says so on every report; a wrong mapping is worse than a gap,
-because every later call goes somewhere wrong and the report calls it fine.
+### Pass 1 — what the machine shows
 
-Show the proposal as one line per capability, each naming the server it came
-from and how confident you are. Mark guesses as guesses. Then ask, and change
-nothing until the user answers.
+The SERVERS section lists what is reachable, each with a derived `PREFIX`.
+Reachable is not the same as relevant: the listing proves a server answers,
+never what it is for.
 
-Only on a clear yes:
+Weigh the evidence, not the presence. Something can be installed by mistake,
+bundled by a policy, or left over from a trial — so what counts is a sign that
+a person chose it here:
+
+- `connected` — somebody signed in on purpose. Strong enough to propose.
+- `needs auth`, `pending`, `unreachable` — ambiguous. Do not propose. Carry it
+  into pass 2 and say what was seen.
+- `unknown` — a state this version does not recognize. Repeat it verbatim and
+  carry it into pass 2.
+
+Use `PREFIX` exactly as given; never construct one.
+
+Show one line per proposal: the capability, the server it came from, and how
+confident you are. Mark guesses as guesses. Ask, and change nothing until the
+user answers. Only on a clear yes:
 
 ```sh
 kyrio probe record --set <capability>=server:<prefix> --servers
@@ -69,14 +77,32 @@ kyrio probe record --set <capability>=server:<prefix> --servers
 Repeat `--set` once per capability. `--servers` caches what was seen, so a
 later report can say when this machine was last checked.
 
-Where the user says a capability is deliberately not wanted here:
+### Pass 2 — what the machine cannot show
 
-```sh
-kyrio probe record --set <capability>=unavailable
-```
+Everything still unconfigured. The machine holds no evidence about these and
+the answer is in the user's head, so it has to be asked for. Not asking is the
+real failure here: a capability nobody was asked about stays a gap forever,
+and the report never explains why.
 
-That is a value rather than an absence. Layers merge, so leaving a key out
-never means off.
+Ask about all of them in one message, not one at a time. Name what each
+capability is for in a few words, mention anything pass 1 saw but did not
+trust, and offer four answers:
+
+1. **one of the servers above** — record `server:<prefix>`
+2. **a command-line tool** — record `cli:<what the user calls it>`
+3. **not used here** — record `unavailable`, and it stops being asked about
+4. **not sure, or later** — record nothing; the next run asks again
+
+Three and four are different answers and must stay different. One is a
+decision, the other is an unanswered question.
+
+Record the user's own word for a tool. Do not invent an identifier and do not
+correct their spelling; the broker canonicalizes it.
+
+Where nothing here can serve what they name, record it anyway and say so
+plainly: the entry keeps the decision, the report then names the missing piece
+instead of blaming their machine, and it starts working the day that piece
+ships. Until then it reads as configured and not usable, which is the truth.
 
 Assignments are validated before anything is written, and a refusal names its
 reason. Do not work around one; show it and ask.

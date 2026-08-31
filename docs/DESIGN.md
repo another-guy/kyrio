@@ -662,6 +662,38 @@ confirms, and the broker validates and writes. Determinism is preserved where
 it matters: nothing is inferred at the point of writing, and the same
 assignments produce the same file.
 
+Setup asks in two passes, and the second is the one that is easy to leave out.
+
+**Pass 1 proposes from evidence**, and the evidence is a sign that a person
+chose something here — a server reporting `connected`, or later a CLI that
+answers *and* is authenticated. Presence is not evidence: a binary can be
+installed by mistake, bundled by policy, or left from a trial, and a capability
+mapped on presence alone sends every later call somewhere wrong while the
+report calls it fine. Anything ambiguous is carried forward rather than
+guessed.
+
+**Pass 2 asks about everything left.** Detection only works where the machine
+advertises itself, and the common case is a product reached through a browser
+by people who never installed anything — nothing on disk names it, and the
+answer exists only in the user's head. Without this pass the capability stays
+unconfigured forever and nobody is ever asked, which is a worse failure than a
+wrong guess because it is silent. Four answers are offered, and *not used here*
+(`unavailable`, a decision) is kept distinct from *not sure yet* (nothing
+recorded, asked again next time).
+
+Where the user names something no adapter serves, it is recorded anyway. The
+entry keeps the decision, the report then names the missing adapter instead of
+blaming the machine, and it starts working the day one ships. Until then it
+reads as configured and not usable, which is exactly true.
+
+Two identifiers are handled by opposite rules, for the same reason — matching
+something real. A **tool prefix** is derived from a server's name by replacing
+non-alphanumerics, and is kept case-sensitive because it is part of an actual
+tool name; deriving it is a string transformation and therefore a fact, so it
+belongs in L1 rather than in a model's head (I9). A **provider id** is typed by
+a person and is canonicalized to lower case, so that two spellings of one name
+cannot reach two different answers, one of which is no adapter at all.
+
 Setup **never installs software and never runs an authentication flow.** It
 prints the exact command and stops. Installing software on a managed machine is
 a decision with an owner, and a script cannot know what is permitted.

@@ -294,6 +294,31 @@ class TestParseSpec(unittest.TestCase):
                     self.assertEqual(r.status, capability.CONFIGURED)
 
 
+class TestProviderIdentifiers(unittest.TestCase):
+    """Setup takes a provider id from whatever a person typed.
+
+    It has to match what an adapter registers under, so two spellings of one
+    name must not reach two different answers -- one of which is silently no
+    adapter at all.
+    """
+
+    def test_spelling_and_case_converge(self):
+        entries = [capability.parse_spec("cli:%s" % text)
+                   for text in ("Provider A", "provider-a", "  PROVIDER_A  ")]
+        self.assertEqual({e["provider"] for e in entries}, {"provider-a"})
+
+    def test_a_list_is_canonicalized_entry_by_entry(self):
+        entry = capability.parse_spec("cli:Provider A, Provider B")
+        self.assertEqual(entry["provider"], ["provider-a", "provider-b"])
+
+    def test_a_tool_prefix_is_left_exactly_as_given(self):
+        """The opposite rule, and deliberately: a prefix is part of a real
+        tool name and is case-sensitive, where a provider id is a label this
+        pack chooses."""
+        entry = capability.parse_spec("server:claude_ai_Google_Drive")
+        self.assertEqual(entry["tool_prefix"], "claude_ai_Google_Drive")
+
+
 class TestParseAssignment(unittest.TestCase):
     def test_a_capability_and_a_spec(self):
         name, entry = capability.parse_assignment("scm=cli:provider-a")

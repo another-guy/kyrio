@@ -19,6 +19,7 @@ This module returns results; it never prints. ``__main__`` emits them (S1).
 import datetime
 import json
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -218,6 +219,18 @@ def run(argv, timeout=PROBE_TIMEOUT):
 # -------------------------------------------------------------- servers
 
 
+#: A tool from a connected server is named
+#: ``mcp__<server name, non-alphanumerics replaced>__<tool>``. Deriving it is
+#: a string transformation, which makes it a fact rather than a judgment, so
+#: it belongs here and not in a model's head (I9).
+_NOT_ALPHANUMERIC = re.compile(r"[^0-9A-Za-z]+")
+
+
+def tool_prefix(name):
+    """The tool namespace a server's tools appear under."""
+    return _NOT_ALPHANUMERIC.sub("_", name).strip("_")
+
+
 class Server:
     """One connected-server entry, as discovery reported it."""
 
@@ -225,6 +238,9 @@ class Server:
         self.name = name
         self.address = address
         self.state = state
+        #: Derived, not reported. Setup would otherwise have to guess it, and
+        #: a guessed prefix names a tool that does not exist.
+        self.prefix = tool_prefix(name)
         #: The status text as printed. Kept so that a state this version does
         #: not recognize is still shown to a person verbatim rather than
         #: rounded to the nearest one it does.
@@ -376,8 +392,8 @@ def _servers_block(discovery):
         return "  not discovered: %s" % discovery.problem
     if not discovery.servers:
         return "  none configured"
-    return table(("NAME", "STATE", "ADDRESS"),
-                 [(s.name, s.state, s.address)
+    return table(("NAME", "STATE", "PREFIX", "ADDRESS"),
+                 [(s.name, s.state, s.prefix, s.address)
                   for s in discovery.servers]).rstrip("\n")
 
 

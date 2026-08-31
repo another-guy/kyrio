@@ -237,6 +237,36 @@ class TestServerState(unittest.TestCase):
             probe.NEEDS_AUTH)
 
 
+class TestToolPrefix(unittest.TestCase):
+    """Derived, never guessed.
+
+    A tool from a connected server is named ``mcp__<prefix>__<tool>``. Setup
+    would otherwise have to construct the prefix from the server's name, and a
+    constructed one that is wrong names a tool that does not exist -- which
+    fails at the point of use, inside somebody's workflow.
+    """
+
+    def test_the_shape_actually_observed(self):
+        self.assertEqual(probe.tool_prefix("claude.ai Google Drive"),
+                         "claude_ai_Google_Drive")
+
+    def test_case_is_kept(self):
+        """Unlike a provider id, the prefix is part of a tool's real name."""
+        self.assertEqual(probe.tool_prefix("Acme Notes"), "Acme_Notes")
+
+    def test_runs_of_separators_do_not_become_runs_of_underscores(self):
+        self.assertEqual(probe.tool_prefix("notes -- v2"), "notes_v2")
+
+    def test_it_neither_starts_nor_ends_with_a_separator(self):
+        self.assertEqual(probe.tool_prefix(" .notes. "), "notes")
+
+    def test_every_discovered_server_carries_one(self):
+        for server in probe.parse_servers(LISTING):
+            with self.subTest(server=server.name):
+                self.assertTrue(server.prefix)
+                self.assertNotIn(" ", server.prefix)
+
+
 class TestParseServers(unittest.TestCase):
     def setUp(self):
         self.servers = probe.parse_servers(LISTING)
