@@ -198,11 +198,21 @@ class TestHook(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("git"), "git is not available")
     def test_the_hook_is_installed_for_this_clone(self):
+        """A reminder, never an assertion.
+
+        ``core.hooksPath`` is a setting on one clone on one machine, and the
+        README makes installing it a decision rather than a side effect of
+        cloning. Asserting it would fail a fresh clone, and every CI runner,
+        for having done nothing wrong -- which is the exact machine coupling
+        this file exists to catch (I2, I4).
+        """
         result = subprocess.run(
             ["git", "config", "core.hooksPath"],
             capture_output=True, text=True, cwd=str(REPO))
-        self.assertEqual(result.stdout.strip(), ".githooks",
-                         "run: git config core.hooksPath .githooks")
+        if result.stdout.strip() != ".githooks":
+            self.skipTest(
+                "the hook is not installed here; to install it, run: "
+                "git config core.hooksPath .githooks")
 
 
 if __name__ == "__main__":
