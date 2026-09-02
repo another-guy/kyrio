@@ -266,6 +266,11 @@ LOCAL — no transport, no auth, no network, always available
   kyrio repo blame <path>:<line>
   kyrio repo release-notes --since <ref>
 
+  DRAFT — D7, not agreed
+  kyrio workspace list                 repositories in scope, and their state
+  kyrio workspace sync                 each to its default branch, latest history
+  kyrio workspace switch <branch>      each to <branch> where that ref exists
+
 REMOTE — transport resolved per machine
   kyrio issue get <id>
   kyrio issue list --mine [--current]
@@ -526,6 +531,11 @@ acceptance criterion (I1).
 | `/kyrio:feature` | Implement in reviewable slices; self-review before handing over. | `issue`, `ci` |
 | `/kyrio:e2e` | Browser test authoring and flake triage against a pinned selector policy. | `ci`, repo-layer conventions |
 | `/kyrio:design` | Decision record against a template: problem, constraints, options with honest tradeoffs, recommendation, and what the decision forecloses. | `kb`, `repo map` |
+| `/kyrio:ticket` **(draft — D6)** | Ticket key to reviewable change. Acquire context, pin the acceptance criteria, classify the work, then dispatch to `bugfix` or `feature`. | `issue`, `kb`, `repo blame`, `scm log` |
+
+`/kyrio:ticket` is **a draft, not an agreed skill.** It is recorded here so the
+catalog shows where it would sit and what it would displace, and the open
+questions are in D6. Nothing depends on it and it is not counted in the twelve.
 
 Several of these overlap with skills bundled with Claude Code or installed
 personally. Overlap is **not** a reason to omit them (I3): a personally
@@ -842,13 +852,26 @@ every git-tracked repository:
   incidents/<date>-<service>.md
   archeology/<symbol>.md
   releases/<tag>.md
+  diagnoses/<ticket>.md              draft - D6
 ```
+
+`diagnoses/` is the one entry here that is not written for a human to read and
+then discard: it is a handoff between two sessions of this pack. It is a draft
+because the skill that would write it is one (D6).
 
 Nothing is written inside a work repository unless explicitly requested (I7).
 Two reasons: a dirty working tree at the moment the user is about to inspect
 their own diff is genuinely disruptive; and a generated file appearing in a
 repository whose maintainers never opted into any of this is a conversation, not
 a commit.
+
+The one place that would move a work repository rather than write beside it is
+`kyrio workspace` — a draft (D7). It changes the checked-out branch and the
+working tree of every repository in scope, which is what I7 exists to prevent,
+so it plans by default, performs only on a second explicit invocation, skips
+any repository that is dirty or has diverged rather than reconciling it, and
+reports what it did per repository. If it ships, that exception is stated here
+and nowhere else.
 
 `output_root` is a cascade key, so a workspace or product layer can redirect
 it, and `kyrio probe record --output-root <path>` writes it into the machine
@@ -966,7 +989,7 @@ not pulling its weight.
 | **P4** | `issue` and `kb` capabilities, `/kyrio:archeology` | The workflow nothing else can do, and the one that proves the multi-capability model |
 | **P5** | `obs` capability, `/kyrio:incident` | Highest stakes, and where deterministic query construction (I9) pays for itself immediately |
 | **P6** | `ci` capability, `repo release-notes`, `/kyrio:ship` | Deterministic generation from history; a paraphrased changelog eventually drops the line that mattered |
-| **P7** | `standup`, `bugfix`, `feature`, `e2e`, `design` | On demand only |
+| **P7** | `standup`, `bugfix`, `feature`, `e2e`, `design`, and `ticket` if D6 is taken | On demand only. `ticket` cannot precede `bugfix` and `feature`: it dispatches to them and has nothing to dispatch to before they exist |
 
 **P3 is not optional and not reorderable.** It is the only step that tests I1
 against reality rather than against intent.
@@ -1102,6 +1125,184 @@ server, which is `issue` in P4 — the design's own worked example of a `call`.
 same way `cli` does, and that adapter declares a tool name per verb. A server
 entry then carries both `provider` and `tool_prefix`: the first says who it is,
 the second says where its tools live on this machine.
+
+### D6 — A ticket-entry dispatcher (`/kyrio:ticket`)
+
+**Draft — not agreed.** Recorded because the evidence for it already exists: the
+acquisition paragraph in front of a ticket-driven change has been written enough
+times to clear the bar in "When to write skill number *n*". The catalog row and
+the P7 entry are drafts on the same footing; nothing in P0-P6 depends on either.
+
+The idea is a thin skill that owns the three steps in front of the split, then
+dispatches:
+
+```
+/kyrio:ticket <id>
+  acquire      issue get, kb search, repo blame, scm log
+  pin          acceptance criteria as given-when-then, plus the omissions
+  classify     bug or feature, from what was acquired
+  dispatch     -> /kyrio:bugfix   or   /kyrio:feature
+```
+
+**Why it is not just a paragraph copied into both skills.** Classification needs
+the output of acquisition. The stated type on a ticket is a hint, not the
+answer: an item filed as a defect that describes absent behaviour is a feature,
+and one filed as a task that describes wrong output is a defect. Automatic
+invocation chooses between `bugfix` and `feature` from the user's sentence,
+before anything has been fetched, which is the one moment the choice cannot be
+made well. A dispatcher moves the decision to after the fetch.
+
+**The second thing it would carry** is a gate before implementation on the
+feature side: criteria rewritten as checkable statements, and the recurring
+omissions named — empty and one and many, failure paths, permissions, existing
+data, boundaries, and contract impact on another repo. `/kyrio:feature` as
+catalogued has no answer to a ticket whose criteria are not testable, and tests
+written against imagined criteria produce confidently-verified wrong behaviour.
+That is the feature-side equivalent of a plausible fix for a misdiagnosis, which
+`/kyrio:bugfix` already guards against.
+
+**The third** is resuming: a root-cause artifact written at the diagnosis gate
+and read by a later session that does only the fix, after re-running the repro
+and re-checking the cited `file:line` against a tree that has moved. This is the
+`diagnoses/` entry in section 8. No skill in the catalog currently resumes from
+an artifact it wrote earlier.
+
+**Trigger:** `bugfix` and `feature` both exist, and the acquisition sequence has
+been written into both.
+
+**Open, and the reason this is a draft rather than a decision:**
+
+- **Skill, or shared reference?** Three shapes: duplicate the acquisition prose
+  in both skills, put it in `references/` and have both read it, or give it a
+  skill that dispatches. Only the third moves classification after the fetch;
+  the first two still leave the choice to automatic invocation. That is an
+  argument, not a measurement.
+- **Namespace pressure.** Section 6 already treats twelve skills in one
+  namespace as enough for automatic invocation to misfire. A thirteenth whose
+  trigger is sharper than either of the two it fronts should absorb ambiguity
+  rather than add to it, but that is a claim about a mechanism nobody has
+  watched misfire yet.
+- **Where gates live.** The pack has no shared vocabulary for stop-and-ask
+  points; each skill states its own. A dispatcher with four of them either
+  invents that vocabulary or duplicates it.
+- **Unset `output_root`.** The resume path depends on an artifact having a place
+  to live. Section 8 says a skill that needs to write and finds the key unset
+  says so and stops, which for a diagnosis gate means the investigation is lost
+  rather than the write being skipped. Whether that is acceptable is undecided.
+
+**What adopting it would cost in conversion,** since the shape is drawn from a
+personally-installed skill that predates this pack: its provider names go
+(I1); its dispatch targets move off personally-installed skills, which is what
+puts it no earlier than P7 (I3); and its artifact moves out of the work
+repository into `output_root` (I7). Its draft-then-confirm posture on commenting
+back to the ticket already matches I6.
+
+### D7 — Workspace-wide branch positioning (`kyrio workspace`)
+
+**Draft — not agreed.** A working directory here holds one product's
+repositories side by side: several clones that are read together, changed
+together, and released together, arranged as a monorepo would be but without a
+monorepo's single revision. Positioning that set — every repository on its
+default branch with the latest history, or every repository on the branch a
+piece of work lives on — is a sequence run by hand, per repository, before
+several of the workflows in section 6 can start.
+
+The idea is a second local noun, alongside `repo`, that owns that sequence:
+
+```
+LOCAL — no transport, no auth, no network
+  kyrio workspace list                 repositories in scope, and their state
+  kyrio workspace sync                 each to its default branch, latest history
+  kyrio workspace switch <branch>      each to <branch> where that ref exists,
+                                       to its default branch where it does not
+```
+
+**Why L1 rather than a paragraph in a skill.** The sequence is mechanical and
+must come out the same way every time (I9). Prose telling a model to visit each
+directory and run git produces a different order on each run, a different
+reaction to the first repository that is dirty, and no record of what it did to
+the other thirteen. It is also the class of instruction most expensive to get
+wrong: every step mutates a working tree.
+
+**Why a new noun rather than more `repo` verbs.** Every existing `repo` verb
+answers a question about the repository containing the working directory. These
+answer about a *set*, and the set is a cascade fact, not a fact about where the
+shell happens to be. Overloading `repo` would make the noun's scope depend on
+which verb followed it, which is the property that stops a grammar being
+learnable.
+
+**Scope comes from the cascade,** not from a search. The set is the immediate
+subdirectories, holding a repository, of the nearest layer that groups
+repositories — the product level section 4 already describes — with
+`"root": true` bounding the walk as it does everywhere else. Nothing scans a
+disk looking for clones.
+
+**The collision with I7 is the whole of the risk, and it is deliberate.**
+Every other write in this pack is either outside the repositories entirely
+(section 8) or a draft to an external system (I6). This one changes the checked-out
+branch and the working tree of every repository in scope, which is the exact
+thing I7 exists to prevent. So the exception has to be narrow and visible rather
+than assumed:
+
+- **A plan by default.** The verb reports, per repository, the branch it is on,
+  whether it is clean, and what would be done to it. Performing it takes a
+  second, explicit invocation.
+- **Fast-forward only.** Never a merge, never a rebase, never a force. A
+  repository whose history has diverged is reported and left alone. Picking a
+  reconciliation strategy on someone's behalf, across fourteen repositories at
+  once, is how a day is lost.
+- **A dirty repository is skipped, not stashed.** A stash that will not pop
+  cleanly leaves a tree nobody asked for and no single command that undoes it,
+  and the moment this verb is most wanted is the moment that uncommitted work is
+  most valuable. Stashing is an explicit opt-in, and refuses to pop into a
+  conflict — leaving the entry in place and saying where it is.
+- **Partial completion is an ordinary result.** Eleven repositories moved and
+  three skipped is `ok` with a row per repository, not `error`. Non-zero is
+  reserved for the verb being unable to run at all, exactly as in section 5.
+
+**A branch name is caller input** and is built into an argument list, never
+interpolated (I5). It is validated against reference-name rules and refused if
+it begins with a dash, before any process starts. The default branch is read
+from what the remote publishes rather than assumed to be a particular name,
+and a cascade key overrides it per repository, because a fork's default is not
+always its upstream's.
+
+**Trigger:** either the checkout-and-pull sequence has been run by hand across
+the same working directory three times, which is the bar in "When to write skill
+number *n*" applied to a verb; or the first time a workflow — `review`, `ship`,
+`incident` — needs several repositories at a coherent revision before it can
+begin, and has no way to ask for one.
+
+**Where it would land.** Anywhere after P0. It resolves no transport, ships no
+adapter, and names no provider, so it neither depends on nor blocks any phase in
+section 10, and I1 and I2 are untouched by it. It is not a skill, and should not
+become one before existing skills have called the verb.
+
+**Open, and the reason this is a draft rather than a decision:**
+
+- **What the second invocation is called.** `--post` is this pack's word for
+  performing the outward thing (I6), and a checkout is not a post. A separate
+  word is clearer at each call site and leaves the pack with two gate
+  vocabularies to keep straight; reusing `--post` keeps one vocabulary and makes
+  it mean two things. Neither has been lived with.
+- **Whether `switch` earns its place, or only `sync`.** `switch` assumes a
+  branch name shared across repositories, and where it is not shared, "the
+  branch where it exists, the default where it does not" quietly assembles a
+  combination — this repository on the feature branch, that one on its default —
+  that may never have been built or tested together. If the verb ships, that
+  combination is the headline of its report, not a footnote; whether a report
+  is enough is undecided.
+- **Whether scope is the cascade layer or `catalog`.** The `catalog` key already
+  maps services to repository paths and is the only existing statement of which
+  repositories belong together — but it is a claim about services, and not every
+  repository beside a service is one.
+- **What the noun is called.** `workspace` already names a cascade level — the
+  one holding shell flavor and `output_root` — while the verbs act on whichever
+  layer groups repositories, which on most machines is the product level one
+  step below. A word meaning one thing in section 4 and another in section 5
+  costs more than it saves, and no alternative has been tried.
+- **Nested repositories and submodules.** Excluded until a working directory
+  that has them exists, rather than designed for now against an imagined one.
 
 ---
 
