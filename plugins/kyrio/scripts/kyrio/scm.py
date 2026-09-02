@@ -86,21 +86,47 @@ def _answered(adapter, ran):
 
     Shared by every verb: they fail the same ways for the same reasons, and
     two copies of this drift into two different messages for one problem.
+
+    The program named is the one that **ran**, not the one the adapter is
+    named for. An adapter may reach more than one binary to finish a verb, and
+    reporting the wrong one as missing sends a person to install something
+    they already have.
     """
+    ran_as = ran.argv[0] if ran.argv else adapter.BINARY
+
     if ran.outcome == probe.NO_CWD:
         # Named before the tool is, because it is not the tool's fault and a
         # message about the tool would be read as one.
         raise ScmError(ran.detail)
     if ran.outcome == probe.MISSING:
         raise ScmError("%s is configured for this machine but is not installed"
-                       % adapter.BINARY)
+                       % ran_as)
     if not ran.answered:
         # The tool's own words, kept. A change that does not exist and a
         # credential that expired are both a non-zero exit, and only the
         # message separates them.
-        raise ScmError("%s: %s" % (adapter.BINARY, ran.detail),
+        raise ScmError("%s: %s" % (ran_as, ran.detail),
                        detail=ran.output.strip() or None)
     return ran
+
+
+def _verb(adapter, name, verb=None):
+    """One verb of an adapter, or the gap named as a gap.
+
+    A host that cannot answer something is an ordinary fact about this
+    machine's tooling, and it belongs in the same sentence as every other gap
+    -- not in an attribute error raised from somewhere a person cannot read.
+
+    ``verb`` is what the caller asked for, which is not always the member that
+    turned out to be missing: posting a comment resolves a head revision
+    first, and a person told that `pr head` is unavailable has been handed an
+    implementation detail instead of an answer.
+    """
+    served = getattr(adapter, name, None)
+    if served is None:
+        raise ScmError("%s does not serve `scm %s` in this version"
+                       % (adapter.ID, verb or name.replace("_", " ")))
+    return served
 
 
 #: Every adapter returns records with these keys, whatever its own listing
@@ -118,11 +144,14 @@ def log(resolution, since, label, cwd=None, runner=None):
     adapter = resolution.adapter
     runner = probe.run if runner is None else runner
 
-    ran = _answered(adapter, adapter.log(runner, since, cwd=cwd))
+    ran = _answered(adapter, _verb(adapter, "log")(runner, since, cwd=cwd))
     try:
         records = adapter.parse_log(ran.output)
     except ValueError as exc:
         raise ScmError(str(exc), detail=ran.output.strip() or None) from exc
+
+    _refuse_if_cut_short(records, since, getattr(adapter, "LOG_LIMIT", None))
+    records = _within(records, since)
 
     if not records:
         payload = "  nothing merged since %s (%s)\n" % (since, label)
@@ -132,6 +161,53 @@ def log(resolution, since, label, cwd=None, runner=None):
                          for r in records])
     return Result("log", payload, provider=adapter.ID, since=since,
                   window=label, changes=len(records))
+
+
+def _refuse_if_cut_short(records, since, limit):
+    """Stop rather than under-report.
+
+    Every listing verb has a ceiling. When a listing comes back sitting
+    exactly on it, the answer is one of two things and the response looks
+    identical either way: everything in the window, or as much of it as fitted.
+
+    The difference is readable from the records themselves. If the oldest one
+    returned is still newer than the window's start, the listing ran out
+    before the window did, and whatever merged before it is missing. If the
+    oldest is older than the start, the window closed first and the answer is
+    complete.
+
+    Refusing is the right failure here. "What shipped last week" is asked in
+    order to act on the answer, and a short list that looks complete is acted
+    on -- a release note missing four changes is worse than no release note,
+    because nobody goes looking for what is not there.
+    """
+    if not since or not limit or len(records) < limit:
+        return
+    dated = [r.get("at") for r in records if r.get("at")]
+    if dated and min(dated) < since:
+        return
+    raise ScmError(
+        "the listing stopped at its limit of %d and never reached back to %s, "
+        "so changes in that window are missing; ask for a shorter window"
+        % (limit, since))
+
+
+def _within(records, since):
+    """Drop what merged before the window asked for.
+
+    Applied here rather than in each adapter because hosts differ in whether
+    they can filter at all: one takes a date in its query, another's listing
+    verb has no date parameter of any kind. A window honoured by one and
+    silently ignored by another is worse than no window, and which of those a
+    machine gets is exactly the difference this layer exists to erase (I1).
+
+    A record with no date is kept. It cannot be shown to fall outside the
+    window, and dropping it would hide a change on the strength of a missing
+    field.
+    """
+    if not since:
+        return records
+    return [r for r in records if not r.get("at") or r["at"] >= since]
 
 
 def manual_log_instructions(since, label):
@@ -216,13 +292,13 @@ def pr_comment(resolution, comment, body_file, post=False, cwd=None,
 
     # A line comment has to name the commit it applies to, which the caller
     # does not know. Fetched first, and a failure here stops the send.
-    ran = _answered(adapter, adapter.pr_head(runner, pinned, cwd=cwd))
+    ran = _answered(adapter, _verb(adapter, "pr_head", "pr comment")(runner, pinned, cwd=cwd))
     try:
         head = adapter.parse_head(ran.output)
     except ValueError as exc:
         raise ScmError(str(exc), detail=ran.output.strip() or None) from exc
 
-    sent = _answered(adapter, adapter.pr_comment(
+    sent = _answered(adapter, _verb(adapter, "pr_comment", "pr comment")(
         runner, pinned, comment.path, comment.line, body_file, head, cwd=cwd))
     where = adapter.parse_comment(sent.output)
     payload = comment.rendered()
@@ -264,10 +340,10 @@ def pr_diff(resolution, identifier, cwd=None, runner=None):
     except ValueError as exc:
         raise ScmError(str(exc)) from exc
 
-    ran = _answered(adapter, adapter.pr_diff(runner, pinned, cwd=cwd))
+    ran = _answered(adapter, _verb(adapter, "pr_diff")(runner, pinned, cwd=cwd))
     if not ran.output.strip():
-        raise ScmError("%s returned an empty diff for %s"
-                       % (adapter.BINARY, pinned))
+        raise ScmError("nothing came back for %s, and a change under review "
+                       "has a diff" % pinned)
 
     return Result("diff", ran.output, provider=adapter.ID, id=pinned,
                   **summarize(ran.output))

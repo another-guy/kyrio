@@ -27,10 +27,15 @@ different states with different owners: one is an install a person may not be
 permitted to perform, the other is a sign-in nobody but them can do. Collapsing
 them into one boolean sends half of all failures to the wrong remedy.
 
-They are functions rather than constants because the second adapter will need
-more than a fixed argument list -- an authentication check that has to know
-which host it is asking about cannot be a literal. A function costs nothing
-today and does not have to be redesigned then.
+They are functions rather than constants because an adapter may need more
+than a fixed argument list, and the second one does.
+
+An adapter is not required to serve every verb of a capability it declares.
+Hosts differ in what they can answer, and a verb one of them cannot serve is a
+gap in this pack rather than a broken machine -- the capability module names it
+as one. Nor is an adapter limited to a single binary: where a host has no verb
+for something, an adapter may reach ordinary developer tooling to finish the
+job, and the failure it reports then names the program that actually ran.
 
 A provider is added when a workflow needs it, together with the fixtures that
 prove it parses. An adapter written earlier encodes a guess about a shape
@@ -42,11 +47,14 @@ message a person gets names the gap in this pack rather than sending them to
 fix configuration that is already right.
 """
 
-from kyrio.providers import github
+from kyrio.providers import azure_devops, github
 
 #: Provider id to adapter. The id is the value a config layer puts in
 #: ``capabilities.<name>.provider``.
-ADAPTERS = {github.ID: github}
+ADAPTERS = {
+    azure_devops.ID: azure_devops,
+    github.ID: github,
+}
 
 
 def get(provider):

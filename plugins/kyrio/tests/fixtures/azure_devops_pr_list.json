@@ -1,0 +1,25 @@
+[
+  {
+    "pullRequestId": 4821,
+    "title": "Retry the write once before reporting failure",
+    "closedDate": "2026-08-28T11:04:52.1130000Z",
+    "createdBy": {
+      "displayName": "Sample Reviewer",
+      "uniqueName": "sample.reviewer@example.test"
+    }
+  },
+  {
+    "pullRequestId": 4790,
+    "title": "Drop the unused retry counter",
+    "closedDate": "2026-08-21T09:15:03.4470000Z",
+    "createdBy": {
+      "displayName": "Second Sample"
+    }
+  },
+  {
+    "pullRequestId": 4702,
+    "title": "Widen the timeout on the slow path",
+    "closedDate": "2026-07-30T16:41:19.8820000Z",
+    "createdBy": {}
+  }
+]

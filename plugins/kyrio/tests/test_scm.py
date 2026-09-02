@@ -408,16 +408,196 @@ class TestManualTransport(unittest.TestCase):
         self.assertIn("2026-08-24", text)
 
 
+class TestMoreThanOneBinary(unittest.TestCase):
+    """An adapter may reach a second program to finish a verb, and the second
+    adapter does. What that must not do is confuse whose failure it was."""
+
+    def adapter(self, **members):
+        """A stand-in adapter, so these test the capability rather than any
+        provider that happens to ship."""
+        return type("Stub", (), dict(
+            ID="stub", BINARY="one", CAPABILITIES=("scm",), TRANSPORT="cli",
+            pr_identifier=staticmethod(lambda text: text.strip()),
+            **members))
+
+    def test_the_program_named_is_the_one_that_ran(self):
+        """The adapter is named for the first binary; the failure came from
+        the second. Naming the first sends somebody to install what they have
+        already got."""
+        adapter = self.adapter(
+            pr_diff=staticmethod(lambda run, i, cwd=None: probe.Ran(
+                probe.MISSING, ["two", "diff"], detail="not found")))
+        with self.assertRaises(scm.ScmError) as caught:
+            scm.pr_diff(resolution(adapter=adapter), "4821")
+        self.assertIn("two", caught.exception.message)
+        self.assertNotIn("one", caught.exception.message)
+
+    def test_a_failure_with_no_command_falls_back_to_the_adapter(self):
+        adapter = self.adapter(
+            pr_diff=staticmethod(lambda run, i, cwd=None: probe.Ran(
+                probe.MISSING, [], detail="not found")))
+        with self.assertRaises(scm.ScmError) as caught:
+            scm.pr_diff(resolution(adapter=adapter), "4821")
+        self.assertIn("one", caught.exception.message)
+
+
+class TestAVerbAnAdapterDoesNotServe(unittest.TestCase):
+    """Hosts differ in what their tooling can do. A gap is an ordinary answer,
+    not an attribute error raised where nobody can read it."""
+
+    def adapter(self):
+        return type("Stub", (), dict(
+            ID="stub", BINARY="one", CAPABILITIES=("scm",), TRANSPORT="cli",
+            pr_identifier=staticmethod(lambda text: text.strip())))
+
+    def test_it_is_reported_rather_than_raised(self):
+        with self.assertRaises(scm.ScmError) as caught:
+            scm.pr_diff(resolution(adapter=self.adapter()), "4821")
+        self.assertIn("stub", caught.exception.message)
+        self.assertIn("pr diff", caught.exception.message)
+
+    def test_it_names_the_verb_that_was_asked_for(self):
+        """Posting resolves a head revision first. Somebody told that
+        `pr head` is unavailable has been handed an implementation detail."""
+        with self.assertRaises(scm.ScmError) as caught:
+            scm.pr_comment(resolution(adapter=self.adapter()),
+                           scm.Comment("4821", "x.py", 3, "body"),
+                           "body.txt", post=True)
+        self.assertIn("pr comment", caught.exception.message)
+        self.assertNotIn("pr head", caught.exception.message)
+
+
+class TestATruncatedListingIsRefused(unittest.TestCase):
+    """Every listing verb has a ceiling. A listing sitting exactly on it is
+    either the whole window or as much of it as fitted, and the response looks
+    the same either way."""
+
+    LIMIT = 3
+
+    def records(self, *dates):
+        return [{"id": str(n), "at": at, "author": "", "title": "t"}
+                for n, at in enumerate(dates)]
+
+    def test_a_full_listing_that_never_reached_the_window_is_refused(self):
+        """Three came back, three was the most it would return, and the oldest
+        is still inside the window. What merged before it is missing."""
+        with self.assertRaises(scm.ScmError) as caught:
+            scm._refuse_if_cut_short(
+                self.records("2026-08-28", "2026-08-27", "2026-08-26"),
+                "2026-08-01", self.LIMIT)
+        self.assertIn("2026-08-01", caught.exception.message)
+        self.assertIn(str(self.LIMIT), caught.exception.message)
+
+    def test_a_full_listing_that_passed_the_window_is_complete(self):
+        """The oldest is older than the window's start, so the window closed
+        before the listing did."""
+        scm._refuse_if_cut_short(
+            self.records("2026-08-28", "2026-08-27", "2026-07-15"),
+            "2026-08-01", self.LIMIT)
+
+    def test_a_short_listing_is_never_truncated(self):
+        scm._refuse_if_cut_short(self.records("2026-08-28"),
+                                 "2026-08-01", self.LIMIT)
+
+    def test_nothing_to_check_without_a_window(self):
+        scm._refuse_if_cut_short(
+            self.records("2026-08-28", "2026-08-27", "2026-08-26"),
+            "", self.LIMIT)
+
+    def test_an_adapter_with_no_stated_ceiling_is_not_second_guessed(self):
+        scm._refuse_if_cut_short(
+            self.records("2026-08-28", "2026-08-27", "2026-08-26"),
+            "2026-08-01", None)
+
+    def test_it_refuses_rather_than_returning_a_short_answer(self):
+        """End to end, because the value of this is that `scm log` does not
+        hand back a list that looks complete when it is not."""
+        listing = """[
+          {"number": 3, "mergedAt": "2026-08-28T00:00:00Z", "title": "c",
+           "author": {"login": "a"}},
+          {"number": 2, "mergedAt": "2026-08-27T00:00:00Z", "title": "b",
+           "author": {"login": "a"}},
+          {"number": 1, "mergedAt": "2026-08-26T00:00:00Z", "title": "a",
+           "author": {"login": "a"}}
+        ]"""
+        adapter = type("Stub", (), dict(
+            ID="stub", BINARY="one", CAPABILITIES=("scm",), TRANSPORT="cli",
+            LOG_LIMIT=3,
+            log=staticmethod(
+                lambda run, since, cwd=None: run(["one", "list"], cwd=cwd)),
+            parse_log=staticmethod(github.parse_log)))
+        with self.assertRaises(scm.ScmError):
+            scm.log(resolution(adapter=adapter), "2026-01-01", "8 months",
+                    runner=answering(listing))
+
+
+class TestTheWindowIsKeptInOnePlace(unittest.TestCase):
+    """One host filters by date in its query; another's listing verb has no
+    date parameter at all. A window honoured by one and ignored by the other
+    is exactly the difference this layer exists to erase."""
+
+    def records(self, *dates):
+        return [{"id": str(n), "at": at, "author": "", "title": "t"}
+                for n, at in enumerate(dates)]
+
+    def test_what_merged_before_the_window_is_dropped(self):
+        kept = scm._within(self.records("2026-08-28", "2026-07-30"),
+                           "2026-08-01")
+        self.assertEqual([r["at"] for r in kept], ["2026-08-28"])
+
+    def test_the_boundary_is_included(self):
+        kept = scm._within(self.records("2026-08-01"), "2026-08-01")
+        self.assertEqual(len(kept), 1)
+
+    def test_a_record_with_no_date_is_kept(self):
+        """It cannot be shown to fall outside the window, and dropping it
+        would hide a change on the strength of a missing field."""
+        kept = scm._within(self.records(""), "2026-08-01")
+        self.assertEqual(len(kept), 1)
+
+    def test_no_window_keeps_everything(self):
+        given = self.records("2026-01-01", "")
+        self.assertEqual(scm._within(given, ""), given)
+
+
 class TestAdapterContractForScm(unittest.TestCase):
     """Applies to every adapter serving this capability, written or not."""
 
+    #: Reading is the floor. An adapter that cannot name a change, fetch its
+    #: diff, and say what merged cannot serve this capability at all.
+    READ = ("pr_identifier", "pr_diff", "log", "parse_log")
+
+    #: Writing back is optional, because hosts genuinely differ in whether
+    #: their tooling can do it -- but it is all or nothing. Half of it is a
+    #: draft that can never be posted, which is worse than a gap named as one.
+    WRITE = ("pr_head", "parse_head", "pr_comment", "parse_comment")
+
     def test_each_can_name_and_fetch_a_change(self):
         for adapter in providers.for_capability("scm"):
-            for name in ("pr_identifier", "pr_diff", "log", "parse_log",
-                         "pr_head", "parse_head", "pr_comment",
-                         "parse_comment"):
+            for name in self.READ:
                 with self.subTest(adapter=adapter.ID, member=name):
                     self.assertTrue(callable(getattr(adapter, name, None)))
+
+    def test_writing_back_is_all_of_it_or_none_of_it(self):
+        for adapter in providers.for_capability("scm"):
+            served = [name for name in self.WRITE
+                      if callable(getattr(adapter, name, None))]
+            with self.subTest(adapter=adapter.ID):
+                self.assertIn(
+                    len(served), (0, len(self.WRITE)),
+                    "%s serves %s of %s: a change can be drafted against it "
+                    "and never sent" % (adapter.ID, len(served),
+                                        len(self.WRITE)))
+
+    def test_each_says_where_its_listing_stops(self):
+        """Without it the capability cannot tell a complete answer from a
+        truncated one, and a truncated one is indistinguishable from the
+        truth."""
+        for adapter in providers.for_capability("scm"):
+            with self.subTest(adapter=adapter.ID):
+                limit = getattr(adapter, "LOG_LIMIT", None)
+                self.assertIsInstance(limit, int)
+                self.assertGreater(limit, 0)
 
     def test_each_refuses_an_identifier_it_cannot_use(self):
         for adapter in providers.for_capability("scm"):

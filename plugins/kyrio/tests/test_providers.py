@@ -1,4 +1,4 @@
-"""The adapter contract, and the one adapter that ships.
+"""The adapter contract, and the adapters that ship.
 
 Two kinds of test here. The contract tests apply to every adapter and are
 written so that adding one without meeting the contract fails immediately
@@ -16,7 +16,9 @@ import unittest
 import _path  # noqa: F401  -- import side effect: puts scripts/ on sys.path
 
 from kyrio import capability, config, probe, providers
-from kyrio.providers import github
+from kyrio.providers import azure_devops, github
+
+FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 
 
 def runner(**outcomes):
@@ -198,3 +200,145 @@ class TestForCapability(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAzureDevOps(unittest.TestCase):
+    """The second adapter. Its value is not that it works -- nobody here can
+    run it -- but that meeting the contract required no change to anything
+    above ``providers/``."""
+
+    def setUp(self):
+        self.shown = (FIXTURES / "azure_devops_pr_show.json").read_text(
+            encoding="utf-8")
+        self.listing = (FIXTURES / "azure_devops_pr_list.json").read_text(
+            encoding="utf-8")
+
+    # -- identity ----------------------------------------------------------
+
+    def test_it_is_registered_under_its_own_id(self):
+        self.assertIs(providers.get(azure_devops.ID), azure_devops)
+
+    def test_it_serves_the_capability_it_declares(self):
+        self.assertIn(azure_devops, providers.for_capability("scm"))
+
+    # -- identifiers -------------------------------------------------------
+
+    def test_an_id_written_the_way_people_paste_it(self):
+        self.assertEqual(azure_devops.pr_identifier(" #4821 "), "4821")
+
+    def test_a_branch_name_is_not_an_identifier(self):
+        for text in ("main", "", "0", "-1", "12x"):
+            with self.subTest(given=text):
+                with self.assertRaises(ValueError):
+                    azure_devops.pr_identifier(text)
+
+    # -- the diff, in two steps -------------------------------------------
+
+    def test_the_diff_asks_this_host_first_then_git(self):
+        """The interesting property of this adapter: its host has no verb
+        that prints a patch, so the diff is assembled rather than fetched."""
+        calls = []
+
+        def run(argv, cwd=None, **kw):
+            calls.append(list(argv))
+            if argv[0] == azure_devops.BINARY:
+                return probe.Ran(probe.ANSWERED, argv, self.shown)
+            return probe.Ran(probe.ANSWERED, argv, "diff --git a/x b/x\n")
+
+        ran = azure_devops.pr_diff(run, "4821", cwd="/somewhere")
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][:4],
+                         [azure_devops.BINARY, "repos", "pr", "show"])
+        self.assertEqual(calls[1][:2], [azure_devops.GIT, "diff"])
+        self.assertIn("diff --git", ran.output)
+
+    def test_the_range_runs_from_target_to_source(self):
+        """What the change adds to its target, not everything that has
+        happened on the target since the branch left it."""
+        calls = []
+
+        def run(argv, cwd=None, **kw):
+            calls.append(list(argv))
+            return probe.Ran(probe.ANSWERED, argv,
+                             self.shown if argv[0] == azure_devops.BINARY
+                             else "diff --git a/x b/x\n")
+
+        azure_devops.pr_diff(run, "4821")
+        target, source = azure_devops.parse_ends(self.shown)
+        self.assertEqual(calls[1][2], "%s...%s" % (target, source))
+
+    def test_a_host_that_refuses_stops_before_git_runs(self):
+        """Otherwise the second call reports on commits nobody resolved, and
+        the message names the wrong program."""
+        calls = []
+
+        def run(argv, cwd=None, **kw):
+            calls.append(list(argv))
+            return probe.Ran(probe.FAILED, argv, "not found", "exit 1")
+
+        ran = azure_devops.pr_diff(run, "4821")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(ran.answered)
+
+    def test_an_answer_missing_its_commits_is_refused(self):
+        with self.assertRaises(ValueError):
+            azure_devops.parse_ends('{"pullRequestId": 4821}')
+
+    def test_an_answer_that_is_not_json_is_refused(self):
+        with self.assertRaises(ValueError):
+            azure_devops.parse_ends("<html>signed out</html>")
+
+    # -- the listing -------------------------------------------------------
+
+    def test_the_listing_asks_for_completed_changes(self):
+        calls = []
+        azure_devops.log(lambda argv, cwd=None, **kw: calls.append(argv)
+                         or probe.Ran(probe.ANSWERED, argv, self.listing),
+                         "2026-08-01")
+        self.assertEqual(calls[0][:4],
+                         [azure_devops.BINARY, "repos", "pr", "list"])
+        self.assertIn(azure_devops.LIST_STATUS, calls[0])
+
+    def test_the_listing_parses_into_the_shared_shape(self):
+        records = azure_devops.parse_log(self.listing)
+        self.assertEqual(len(records), 3)
+        self.assertEqual(records[0]["id"], "4821")
+        self.assertEqual(records[0]["at"], "2026-08-28")
+        self.assertEqual(records[0]["author"], "Sample Reviewer")
+
+    def test_an_address_beside_a_name_is_not_taken(self):
+        """A listing says who merged something. It does not need to carry a
+        mail address into a payload this pack prints and stores."""
+        self.assertNotIn("@", azure_devops.parse_log(self.listing)[0]["author"])
+
+    def test_a_change_with_no_author_is_left_empty(self):
+        """An automated completion genuinely has none, and a placeholder
+        would read as a person nobody could find."""
+        self.assertEqual(azure_devops.parse_log(self.listing)[2]["author"], "")
+
+    # -- what it must never do --------------------------------------------
+
+    def test_it_never_names_where_it_points(self):
+        """The whole of I1 and I2 for this file: the tool reads that from the
+        repository it runs in, or from what a person configured here."""
+        text = pathlib.Path(azure_devops.__file__).read_text(encoding="utf-8")
+        # The flag naming a grouping above the machine is not listed here on
+        # purpose: it cannot be written anywhere in this tree, so RULE 1 of the
+        # portability lint already forbids it, and spelling it to assert its
+        # absence would be the violation.
+        # Not listed: the flag asking the tool to work the location out from
+        # the repository's own remote. That is the behaviour keeping this file
+        # free of any destination, so forbidding it would forbid the fix.
+        for forbidden in ("--project", "--subscription",
+                          "dev.azure.com", "visualstudio.com"):
+            with self.subTest(flag=forbidden):
+                self.assertNotIn(forbidden, text)
+
+    def test_it_writes_nothing_and_fetches_nothing(self):
+        """Assembling a diff locally must not mutate the repository it reads
+        (I7)."""
+        text = pathlib.Path(azure_devops.__file__).read_text(encoding="utf-8")
+        for verb in ('"fetch"', '"pull"', '"checkout"', '"clone"'):
+            with self.subTest(verb=verb):
+                self.assertNotIn(verb, text)

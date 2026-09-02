@@ -480,7 +480,50 @@ launched rather than after.
 **A tool's own words survive a failure.** A change that does not exist and a
 credential that expired are both a non-zero exit; only the message separates
 them, so it is carried through as the payload rather than replaced with
-something tidier.
+something tidier. The program *named* beside those words is the one that ran,
+never the one the adapter is named for -- see the next paragraph for why an
+adapter may run something else.
+
+**An adapter is not limited to one binary.** Where a host has no verb for
+something, an adapter may reach ordinary developer tooling to finish the job.
+The second adapter does: its host has no verb that prints a patch, so a diff
+is assembled by asking the host which two commits a change spans and asking
+`git` locally for the difference between them. Two consequences follow, and
+both are load-bearing. Nothing is fetched -- if those commits are not present
+locally, the tool says so and that is the answer, because fetching would write
+into a repository this pack was asked only to read (I7). And the failure names
+the program that actually failed, because being told that the wrong program is
+missing sends a person to install what they already have.
+
+**An adapter need not serve every verb of a capability it declares.** Hosts
+differ in what their tooling can do, and a verb one of them cannot serve is a
+gap in this pack rather than a broken machine: the capability module says so
+in the same sentence it uses for every other gap, naming the verb the caller
+asked for rather than the internal step that turned out to be missing.
+
+Reading is the floor -- name a change, fetch its diff, list what merged --
+because an adapter that cannot do those cannot serve the capability at all.
+Writing back is optional and **all or nothing**: half of it is a draft that
+can never be posted, which is worse than a gap named as one. A test enforces
+both halves against every adapter, including ones not written yet.
+
+**A window is the capability's promise, not the host's.** One host filters by
+date in its query; another's listing verb has no date parameter of any kind.
+Applying the window after parsing, in one place, is what stops `--since`
+meaning two different things on two machines (I1, I9). A record whose date is
+missing is kept: it cannot be shown to fall outside the window, and dropping
+it would hide a change on the strength of an absent field.
+
+**A listing that ran out is refused, not trimmed.** Every listing verb has a
+ceiling, and a listing sitting exactly on it is either the whole window or as
+much of it as fitted -- the response looks identical either way. The records
+say which: if the oldest one returned is still newer than the window's start,
+the listing ran out before the window did. Every adapter therefore states its
+ceiling under the same name, because the capability cannot ask the question of
+a constant whose name it does not know. Refusing is the right failure. "What
+shipped last week" is asked in order to act on the answer, and a short list
+that looks complete gets acted on -- a release note missing four changes is
+worse than no release note, because nobody goes looking for what is not there.
 
 **Two probes, never one.** *Installed* and *signed in* are different states
 with different owners: one is an install a person may not be permitted to

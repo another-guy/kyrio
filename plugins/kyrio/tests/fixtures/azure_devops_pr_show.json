@@ -1,0 +1,16 @@
+{
+  "pullRequestId": 4821,
+  "title": "Retry the write once before reporting failure",
+  "status": "active",
+  "sourceRefName": "refs/heads/topic/retry-once",
+  "targetRefName": "refs/heads/main",
+  "lastMergeSourceCommit": {
+    "commitId": "3f9a1c2d4e5b6a7809f1e2d3c4b5a69788990011"
+  },
+  "lastMergeTargetCommit": {
+    "commitId": "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
+  },
+  "createdBy": {
+    "displayName": "Sample Reviewer"
+  }
+}
