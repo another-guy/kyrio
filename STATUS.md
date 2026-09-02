@@ -12,16 +12,24 @@ Current version: **0.3.0**
 
 ## Phases
 
-| Phase | Built | Validated | Version | Notes |
-|---|---|---|---|---|
-| **P0** broker skeleton | yes | yes | 0.1.0 | Suite and lint run on Linux, Windows, and macOS in CI |
-| **P1** `orient`, `trace` | yes | yes | 0.2.0 | Tagged `kyrio--v0.2.0`. Ported to a second machine at the time — see below |
-| **P2** `setup` probing, `scm`, `review`, `review-pass` | yes | **partly** | 0.3.0 | See [validation/P2.md](validation/P2.md). Not tagged |
-| **P3** port to a second machine | n/a | **no** | — | See [validation/P3.md](validation/P3.md). Needs a machine that has never had the plugin |
-| **P4** `issue`, `kb`, `archeology` | no | — | 1.1.0 | Blocked: P3 is not reorderable |
-| **P5** `obs`, `incident` | no | — | 1.2.0 | |
-| **P6** `ci`, `release-notes`, `ship` | no | — | 1.3.0 | |
-| **P7** `standup`, `bugfix`, `feature`, `e2e`, `design` | no | — | 1.4.0+ | On demand only |
+Every phase in [docs/DESIGN.md](docs/DESIGN.md) section 10 is listed, built or
+not. A version in *italics* is the planned one from the version plan, not a
+release that exists.
+
+| Phase | Feature | Built | Validated | Version | Notes |
+|---|---|---|---|---|---|
+| **P0** | broker skeleton | yes | yes | 0.1.0 | Cascade resolver, `emit`, `ingest`, `repo`, shims, lint, CI. Suite and lint run on Linux, Windows, and macOS |
+| **P1** | orient & trace | yes | yes | 0.2.0 | Zero transports, zero configuration. Tagged `kyrio--v0.2.0`, and ported once — see below |
+| **P2** | code review | yes | **partly** | 0.3.0 | `setup` probing, `scm`, `review`, `review-pass`. [validation/P2.md](validation/P2.md). Not tagged |
+| **P3** | second machine | n/a | **no** | *1.0.0* | The port. [validation/P3.md](validation/P3.md). Needs a machine that has never had the plugin |
+| **P4** | archeology | no | — | *1.1.0* | `issue` and `kb` capabilities, `/kyrio:archeology`. Blocked: P3 is not reorderable |
+| **P5** | incident response | no | — | *1.2.0* | `obs` capability, `/kyrio:incident` |
+| **P6** | release prep | no | — | *1.3.0* | `ci` capability, `repo release-notes`, `/kyrio:ship` |
+| **P7** | everyday skills | no | — | *1.4.0*+ | `standup`, `bugfix`, `feature`, `e2e`, `design`, and `ticket` if D6 is taken. One minor per skill, on demand |
+
+P3 carries the jump to `1.0.0`. Everything before it is `0.x` on purpose: the
+machine that wrote an adapter is the worst possible place to find out whether
+that adapter leaked.
 
 ## What is unfinished
 
