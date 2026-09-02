@@ -1037,6 +1037,11 @@ not pulling its weight.
 **P3 is not optional and not reorderable.** It is the only step that tests I1
 against reality rather than against intent.
 
+This table is the plan. Which phases are actually built, and which have been
+validated on a machine other than the one that wrote them, is tracked in
+[../STATUS.md](../STATUS.md) -- kept separate so that recording progress never
+means editing the design.
+
 ### Version plan
 
 Which phase lands as which release. The policy in section 7 says what a version

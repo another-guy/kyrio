@@ -22,7 +22,8 @@ machine, and it reads its configuration from files that live outside this
 repository.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the full design, its invariants, and
-the reasoning behind them.
+the reasoning behind them, and [STATUS.md](STATUS.md) for how much of it is
+built, how much has been validated, and on which machines.
 
 ## Requirements
 
